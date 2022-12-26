@@ -13,16 +13,16 @@ lastUpdated = "Jan 02, 2006 15:04 MST"
 
 [sidebar]
 emoji = "🍥"
-subtitle = "Lorem ipsum dolor sit amet, consectetur adipiscing elit."
+subtitle = "人生的面，吃一碗少一碗；人生的面，见一面少一面。"
 
 [sidebar.avatar]
 enabled = true
 local = true
-src = "img/avatar.png"
+src = "img/fox.png"
 
 [article]
-math = false
-readingTime = true
+math = true
+readingTime = false
 
 [article.license]
 enabled = true
