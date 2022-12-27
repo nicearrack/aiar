@@ -4,8 +4,8 @@ mainSections = ["post"]
 rssFullContent = true
 
 [footer]
-since = 2020
-customText = ""
+since = 2019
+customText = "最好开心，不开心也行❤️"
 
 [dateFormat]
 published = "Jan 02, 2006"
@@ -74,7 +74,7 @@ enabled = true
 
 ## Comments
 [comments]
-enabled = true
+enabled = false
 provider = "disqus"
 
 [comments.disqusjs]
