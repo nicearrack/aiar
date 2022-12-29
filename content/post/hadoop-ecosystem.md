@@ -11,7 +11,6 @@ categories:
     - Tech
 tags:
     - Hadoop
-    - BigData
 ---
 
 > 任何值得做的事, 做的糟糕也值得

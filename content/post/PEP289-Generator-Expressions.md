@@ -11,7 +11,6 @@ categories:
     - Tech
 tags:
     - Python
-    - PEP
     - Translation
 ---
 

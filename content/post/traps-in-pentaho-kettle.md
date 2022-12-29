@@ -12,7 +12,6 @@ categories:
     - Tech
 tags:
     - ETL
-    - Kettle
 ---
 
 ## 连接数据库使用的是 sid

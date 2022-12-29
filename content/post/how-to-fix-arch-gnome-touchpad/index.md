@@ -11,8 +11,6 @@ comments: true
 categories:
     - Tech
 tags:
-    - Arch
-    - Gnome
     - Linux
 ---
 

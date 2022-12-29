@@ -10,7 +10,7 @@ comments: true
 categories:
     - Tech
 tags:
-    - Shell
+    - Linux
     - Translation
 ---
 
