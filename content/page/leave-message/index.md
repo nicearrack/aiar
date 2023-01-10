@@ -9,7 +9,7 @@ menu:
         name: Leave Message
         weight: 2
         params: 
-            icon: user
+            icon: date
 ---
 {{< quote author="不知道谁说的" source="《但我觉得很nice》">}}
 愿你余生所有的珍惜，都不用失去来懂得。
