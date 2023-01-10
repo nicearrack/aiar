@@ -8,9 +8,9 @@ license:
 hidden: false
 comments: true
 categories:
-    - Tech
+    - 译文
 tags:
-    - Translation
+    - Web
 ---
 
 > - 原文地址：[Pattern: API Gateway / Backends for Frontends](https://microservices.io/patterns/apigateway.html)

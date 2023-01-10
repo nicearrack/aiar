@@ -8,10 +8,9 @@ license:
 hidden: false
 comments: true
 categories:
-    - Tech
+    - 译文
 tags:
     - Python
-    - Translation
 ---
 
 > 原文标题：PEP 202 List Comprehensions  

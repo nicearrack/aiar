@@ -8,10 +8,9 @@ license:
 hidden: false
 comments: true
 categories:
-    - Tech
+    - 译文
 tags:
     - Linux
-    - Translation
 ---
 
 > 原文: [What is Arch User Repository (AUR)? How to Use AUR on Arch and Manjaro Linux?](https://itsfoss.com/aur-arch-linux/)

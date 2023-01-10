@@ -8,10 +8,9 @@ license:
 hidden: false
 comments: true
 categories:
-    - Tech
+    - 译文
 tags:
     - Linux
-    - Translation
 ---
 
 原文链接: [Command line productivity with Fish shell](https://dev.to/yankee/command-line-productivity-with-fish-shell-52e4)

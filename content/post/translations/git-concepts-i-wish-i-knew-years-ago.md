@@ -8,10 +8,9 @@ license:
 hidden: false
 comments: true
 categories:
-    - Tech
+    - 译文
 tags:
     - Git
-    - Translation
 ---
 
 > - 原文地址：[Git Concepts I Wish I Knew Years Ago](https://dev.to/g_abud/advanced-git-reference-1o9j)
