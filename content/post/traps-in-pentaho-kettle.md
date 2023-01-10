@@ -9,7 +9,7 @@ hidden: false
 comments: true
 draft: true
 categories:
-    - Tech
+    - 技术
 tags:
     - ETL
 ---

@@ -8,7 +8,7 @@ license:
 hidden: false
 comments: true
 categories:
-    - Tech
+    - 技术
 tags:
     - Hadoop
 ---
