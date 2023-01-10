@@ -74,8 +74,8 @@ enabled = true
 
 ## Comments
 [comments]
-enabled = false
-provider = "disqus"
+enabled = true
+provider = "waline"
 
 [comments.disqusjs]
 shortname = ""
@@ -103,13 +103,13 @@ clientSecret = ""
 autoCreateIssue = false
 
 [comments.waline]
-serverURL = ""
-lang = ""
-visitor = ""
-avatar = ""
-emoji = ["https://cdn.jsdelivr.net/gh/walinejs/emojis/weibo"]
-requiredMeta = ["name", "email", "url"]
-placeholder = ""
+serverURL = "blog-comments-livid.vercel.app"
+lang = "zh-CN"
+pageview = true
+comment = true
+search = false
+emoji = ["https://unpkg.com/@waline/emojis@1.1.0/alus", "https://unpkg.com/@waline/emojis@1.1.0/bilibili", "https://cdn.jsdelivr.net/gh/walinejs/emojis/weibo"]
+requiredMeta = ["name", "email"]
 
 [comments.waline.locale]
 admin = "Admin"
