@@ -70,7 +70,90 @@ dotproduct = sum(x * y for x, y in itertools.izip(x_vector, y_vector))
 ## BDFL 声明
 本 PEP 已被 Py2.4 接受。[[1]](#名词解释)
 
+## 细节描述
+（也许对于火星读者来说，下面这些说的可能没那么全面确切，但我相信这些例子已经足够表述我的想法，以便在 c.l.py 进行讨论(译者注：最后半句没看懂)。Python 参考手册应涵盖以下所有语义语法规格。）
 
+1. 生成器表达式的语义等同于创建一个匿名生成器函数并调用它。例如：
+``` python
+>>> g = (x**2 for x in range(10))
+>>> print g.next()
+```
+这等同于：
+``` python
+>>> def __gen(bound_exp):
+...   for var1 in bound_exp:
+...     if exp2:
+...       for var2 in exp3:
+...         if exp4:
+...           yield tgtexp
+
+>>> g = __gen(iter(exp1))
+>>> del __gen
+```
+
+2. 句法要求，生成器表达式需要直接置于一组小括号内，并且两边都不能有逗号。参考 CVS 中的 `Grammar/Grammar` 文件，两条规则更改(*译者注：语法文件可参照[官方文档](https://docs.python.org/3.11/reference/grammar.html)*)：
+
++ 规则1
+```
+atom: '(' [testlist] ')'
+```
+更改为：
+```
+atom: '(' [testlist_gexp] ')'
+```
+其中 testlist_gexp 和 listmaker 基本没差，但 testlist_gexp 只允许在 `for ... in` 之间进行单个测试。
+```
+testlist_gexp: test ( gen_for | (',' test)* [','] )
+```
+
++ 规则2，参数列表的规则需要进行类似修改。
+
+也就意味着，只有一个参数时，生成器表达式小括号可以省略，如：
+``` python
+>>> sum(x**2 for x in range(10))
+```
+
+但其他情况下，表达式小括号必须填写：
+``` python
+>>> reduce(operator.add, (x**2 for x in range(10)))
+>>> g = (x**2 for x in range(10))
+```
+
+确切的细节已签入 `Grammar/Grammar` 1.49版。
+
+3. 如果将一个或一组简单变量作为循环变量，那么它(们)不会暴露给外层函数。这样一来不仅有助于开发编码，而且可以让典型用例更加可信赖。在Python的一些未来版本中，列表推导式的迭代变量也将对外层函数代码隐身（并且在Py2.4中，访问迭代变量将会触发Warning）。例如：
+``` python
+>>> x = 'hello'
+>>> y = list(x for x in 'abc')
+>>> print x
+hello  # 而不是 c
+```
+
+4. 列表推导式语法将保持不变，例如：
+``` python
+>>> [x for x in S]  # 这是一个列表推导式
+>>> [(x for x in S)]  # 这是一个列表，里面包含了一个生成器表达式
+```
+不幸的是，目前二者有着轻微的句法差异，列表推导式：
+``` python
+>>> [x for x in 1, 2, 3]  # python3 已不支持该写法
+```
+是合法的，它等同于：
+``` python
+>>> [x for x in (1, 2, 3)]
+```
+但是生成器表达式不支持以上形式：
+``` python
+>>> (x for x in 1, 2, 3)
+```
+非法。
+
+之前的列表推导式语法将在 Python 3.0 中不再支持，同时也会在 Python2.4 及以后版本中被标为弃用。
+
+为了让 Python3.0 中列表推导式的语义定义等同于 `list(<generator expression>)`，上面提到的列表推导式会将其迭代变量“泄漏”到外层环境中的问题，也将在 Python 3.0 中得到修复。同时，在Py2.4 及以后版本中，如果列表推导式的迭代变量和当前上下文中的变量重名时，解释器将触发弃用警告。
+
+## 早期绑定 vs. 后期绑定
+待续
 
 ## 名词解释
 [1] BDFL 终身仁慈独裁者（英语：Benevolent Dictator For Life，缩写BDFL）是少数开源软件开发者所拥有的头衔。他们通常是某一项目的创始人，并在该项目社区出现争议时拥有最终的决定权。来自[维基百科](https://en.wikipedia.org/wiki/Benevolent_dictator_for_life)
