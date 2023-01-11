@@ -3,7 +3,7 @@ title: "Arch+Gnome 触摸板功能忽然不全了怎么办"
 description: 某一次重启之后, 触摸板无法 tap to click, 无法触发三指四指的手势事件, 一指两指滑动功能还可以使用。以下记录修复过程。
 
 date: 2022-02-21T17:22:12+08:00
-image: cover.png
+image: https://i.iinfo.cz/images/586/arch-linux-1.jpg
 math: 
 license: 
 hidden: false
@@ -81,7 +81,7 @@ $ sudo systemctl enable --now touchegg
 
 
 ## 参考文档
-https://bbs.archlinux.org/viewtopic.php?pid=1638596#p1638596
-https://itsfoss.com/three-finger-swipe-gnome/
-https://wiki.archlinux.org/title/GNOME#Mouse_and_touchpad
-https://bugzilla.gnome.org/show_bug.cgi?id=764257#c12
+https://bbs.archlinux.org/viewtopic.php?pid=1638596#p1638596  
+https://itsfoss.com/three-finger-swipe-gnome/  
+https://wiki.archlinux.org/title/GNOME#Mouse_and_touchpad  
+https://bugzilla.gnome.org/show_bug.cgi?id=764257#c12  
