@@ -17,16 +17,8 @@ icon = "brand-github"
 
 [[social]]
 identifier = "mail"
-name = "GitHub"
+name = "mail"
 url = "mailto:arrackisarookie@gmail.com"
 
 [social.params]
 icon = "mail"
-
-#[[social]]
-#identifier = "twitter"
-#name = "Twitter"
-#url = "https://twitter.com"
-
-#[social.params]
-#icon = "brand-twitter"
