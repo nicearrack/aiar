@@ -2,7 +2,7 @@
 title: "Hadoop生态圈"
 description: Hadoop生态圈中各项基本都是为了处理超过单机尺寸的数据而诞生, 每项工具各有特色各有各的用处, 但互相之间又有重合.
 date: 2022-06-15T16:41:06+08:00
-image: https://tutorials.freshersnow.com/wp-content/uploads/2020/06/Hadoop-Ecosystem.png
+image: https://ngodingdata.com/wp-content/uploads/2020/09/hadoopecosystem.png
 math: 
 license: 
 hidden: false

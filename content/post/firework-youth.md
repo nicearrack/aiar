@@ -2,7 +2,7 @@
 title: "焰火青年"
 description: “你从未看透，你只想感受，慷慨赴死的颤抖”
 date: 2022-12-28T14:32:30+08:00
-image: 
+image: https://i.ytimg.com/vi/LyExBkif7D0/maxresdefault.jpg
 math: 
 license: 
 hidden: false
