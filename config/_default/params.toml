@@ -103,7 +103,7 @@ clientSecret = ""
 autoCreateIssue = false
 
 [comments.waline]
-serverURL = "blog-comments-livid.vercel.app"
+serverURL = "https://comments.aiar.site/"
 lang = "zh-CN"
 pageview = true
 comment = true
