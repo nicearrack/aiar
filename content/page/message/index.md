@@ -3,7 +3,7 @@ title: "关于我"
 date: 2022-12-28
 layout: "single"
 slug: "message"
-image: https://w.wallhaven.cc/full/jx/wallhaven-jx3lq5.jpg
+image: https://raw.githubusercontent.com/Arrackisarookie/images/main/cover/singlelife.jpg
 menu:
     main:
         name: 留言

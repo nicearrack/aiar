@@ -2,7 +2,7 @@
 title: "[译] 什么是AUR，如何在Arch和Manjaro中使用AUR"
 description: 如果你用过 Arch Linux 或者其他基于 Arch 的 Linux 发行版(比如 Manjaro)，那么可能曾遇到过 `AUR` 这个术语。在你尝试安装一个软件的时候，也许有人会建议你从 `AUR` 来安装它，然后你满脸问号。什么是 `AUR`？为啥要用它？又要咋用？接下来，我将回答这些问题。
 date: 2021-05-21T09:01:54+08:00
-image: https://www.maketecheasier.com/assets/uploads/2021/02/use-aur-in-arch-featured.jpg
+image: https://raw.githubusercontent.com/Arrackisarookie/images/main/tech/aur.jpg
 math: 
 license: 
 hidden: false
