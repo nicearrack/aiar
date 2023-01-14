@@ -3,7 +3,7 @@ title: "关于我"
 date: 2022-12-28
 layout: "single"
 slug: "message"
-image: https://raw.githubusercontent.com/Arrackisarookie/images/main/cover/singlelife.jpg
+image: https://raw.githubusercontent.com/Arrackisarookie/images/main/singlelife.jpg
 menu:
     main:
         name: 留言

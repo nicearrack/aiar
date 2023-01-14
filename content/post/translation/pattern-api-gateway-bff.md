@@ -2,7 +2,7 @@
 title: "[译] 模式：API网关和BFF"
 description: 试想，你的团队正在搭建一个在线商城，它使用了微服务架构模式，现在需要你实现产品的信息细节页面。针对这个产品信息页面，你需要开发多个版本的用户接口：
 date: 2020-09-03T14:50:29+08:00
-image: https://raw.githubusercontent.com/Arrackisarookie/images/main/tech/api.png
+image: https://raw.githubusercontent.com/Arrackisarookie/images/main/api.png
 math: 
 license: 
 hidden: false

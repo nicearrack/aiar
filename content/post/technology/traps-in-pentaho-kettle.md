@@ -2,7 +2,7 @@
 title: "Pentaho-Kettle里踩过的坑"
 description: 那些在Kettle里踩过的坑，说多了都是泪。。
 date: 2021-04-28T11:32:48+08:00
-image: https://raw.githubusercontent.com/Arrackisarookie/images/main/tech/Pentaho.webp
+image: https://raw.githubusercontent.com/Arrackisarookie/images/main/Pentaho.webp
 math: 
 license: 
 hidden: false
