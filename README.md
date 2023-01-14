@@ -6,7 +6,7 @@ Built with [Hugo](https://github.com/gohugoio/hugo)
 ## todo
 + [x] 图片全部使用images仓库的
 + [x] 鼠标点击烟花特效
++ [x] 标题名称 - xxx
 + [ ] 弄明白CNAME
 + [ ] 使用cdn加速类似jsdelivr等
 + [ ] 类似说说的玩意
-+ [ ] 标题名称 - xxx
