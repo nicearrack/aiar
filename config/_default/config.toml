@@ -17,4 +17,4 @@ disqusShortname = "Aiar"
 
 # Custom
 [params]
-favicon = 'favicon.ico'
+favicon = '/favicon.ico'
