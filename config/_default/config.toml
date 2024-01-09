@@ -4,9 +4,6 @@ languageCode = "en-us"
 paginate = 5
 title = "Aiar's Site"
 
-# Theme i18n support
-# Available values: en, fr, id, ja, ko, pt-br, zh-cn, zh-tw, es, de, nl, it, th, el, uk, ar
-DefaultContentLanguage = "zh-cn"
 
 # Set hasCJKLanguage to true if DefaultContentLanguage is in [zh-cn ja ko]
 # This will make .Summary and .WordCount behave correctly for CJK languages.
@@ -18,3 +15,17 @@ disqusShortname = "Aiar"
 # Custom
 [params]
 favicon = '/favicon.ico'
+
+
+# Theme i18n support
+# Available values: en, fr, id, ja, ko, pt-br, zh-cn, zh-tw, es, de, nl, it, th, el, uk, ar
+defaultContentLanguage = "zh-cn"
+[languages]
+  [languages.zh-cn]
+    languageName = "中文"
+    title = "Aiar's Site"
+    weight = 1
+  [languages.en]
+    languageName = "English"
+    title = "Aiar's Site"
+    weight = 1
