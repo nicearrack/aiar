@@ -2,7 +2,7 @@
 title: "树洞的第n次搬迁感言"
 description: 人们总要有个树洞来存放自己这些啥布拉吉的转瞬即逝的想法。
 date: 2022-12-27T10:49:15+08:00
-image: https://raw.githubusercontent.com/Arrackisarookie/images/main/jerlau.jpg
+image: https://s11.ax1x.com/2024/01/08/pFShmWt.jpg
 math: 
 license: 
 hidden: false

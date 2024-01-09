@@ -30,7 +30,7 @@ links:
   - title: Aiar's Site
     description: 愿余生所有的珍惜，都不用失去来懂得。
     website: https://aiar.site
-    image: https://raw.githubusercontent.com/Arrackisarookie/images/main/fox.png
+    image: https://s11.ax1x.com/2024/01/08/pFSgah6.png
 menu:
     main: 
         weight: 5
@@ -38,7 +38,7 @@ menu:
             icon: link
 
 comments: true
-image: https://raw.githubusercontent.com/Arrackisarookie/images/main/jerlau.jpg
+image: https://s11.ax1x.com/2024/01/08/pFShmWt.jpg
 ---
 
 > ✨✨✨ 交换友链请使用下面的格式留言，欢迎大家来交换友链，看到就会添加的 ✨✨✨
@@ -47,5 +47,5 @@ image: https://raw.githubusercontent.com/Arrackisarookie/images/main/jerlau.jpg
 - title: Aiar's Site
   description: 愿余生所有的珍惜，都不用失去来懂得。
   website: https://aiar.site
-  image: https://raw.githubusercontent.com/Arrackisarookie/images/main/fox.png
+  image: https://s11.ax1x.com/2024/01/08/pFSgah6.png
 ```

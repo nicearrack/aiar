@@ -2,7 +2,7 @@
 title: "[译] PEP202 - 列表推导式"
 description: 本篇 PEP 描述了一项 Python 语法扩展建议，列表推导式
 date: 2023-01-09T17:00:01+08:00
-image: https://raw.githubusercontent.com/Arrackisarookie/images/main/pep.png
+image: https://s11.ax1x.com/2024/01/08/pFShKQf.png
 math: 
 license: 
 hidden: false

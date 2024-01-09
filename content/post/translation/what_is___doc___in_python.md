@@ -2,7 +2,7 @@
 title: "[译] Python中的__doc__是啥"
 description: Python 的每个对象中都有一个叫做 `__doc__` 的属性，用来存放该对象的文档信息。比如对于 `Dog` 类，可以直接调用 `Dog.__doc__` 来获取它的文档字符串(docstring)信息
 date: 2023-01-30T09:56:47+08:00
-image: https://raw.githubusercontent.com/Arrackisarookie/images/main/202301301201772.png
+image: https://s11.ax1x.com/2024/01/08/pFShAdH.png
 comments: true
 categories:
     - 译文
@@ -60,7 +60,7 @@ print(bark.__doc__)
 
 在代码中定义文档字符串最大的好处在于，可以以编程的方式创建漂亮的文档了。借助类似 [Sphinx](https://www.sphinx-doc.org/en/master/examples.html) 这样的工具，为项目创建类似下图这样的文档将变得非常容易，只需要在代码中定义文档字符串，即为 `__doc__` 赋值。
 
-![Sphinx-doc](https://raw.githubusercontent.com/Arrackisarookie/images/main/202301301121492.png)
+![Sphinx-doc](https://s11.ax1x.com/2024/01/08/pFShMy8.png)
 
 ## Practice
 [官方 PEP 标准](https://www.python.org/dev/peps/pep-0257/)中定义了很多文档字符串优雅的实践，它们被称为 *文档字符串规范(Docstring Conventions)*。定义项目中的文档字符串时，请尽可能按照这些规范。下面将列举出规范中最重要的7条：
