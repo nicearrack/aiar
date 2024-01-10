@@ -26,11 +26,12 @@ links:
     description: 记录生活，记录代码，给自己的网络生涯留下一笔精神财富！
     website: https://cuojue.org
     image: https://cuojue.org/avatar/b81741f1a25b57a016e223fe13f905b4
+    
+  - title: Yunyi’s Blog
+    description: Little squirrel Hopping around
+    website: https://www.yunyitang.me/zh/
+    image: https://www.yunyitang.me/img/Avatar.png
 
-  - title: Aiar's Site
-    description: 愿余生所有的珍惜，都不用失去来懂得。
-    website: https://aiar.site
-    image: https://s11.ax1x.com/2024/01/08/pFSgah6.png
 menu:
     main: 
         weight: 5
