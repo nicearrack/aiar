@@ -15,17 +15,3 @@ disqusShortname = "Aiar"
 # Custom
 [params]
 favicon = '/favicon.ico'
-
-
-# Theme i18n support
-# Available values: en, fr, id, ja, ko, pt-br, zh-cn, zh-tw, es, de, nl, it, th, el, uk, ar
-defaultContentLanguage = "zh-cn"
-[languages]
-  [languages.zh-cn]
-    languageName = "中文"
-    title = "Aiar's Site"
-    weight = 1
-  [languages.en]
-    languageName = "English"
-    title = "Aiar's Site"
-    weight = 1
