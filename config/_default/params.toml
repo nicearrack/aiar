@@ -75,7 +75,7 @@ enabled = true
 ## Comments
 [comments]
 enabled = true
-provider = "waline"
+provider = "twikoo"
 
 [comments.disqusjs]
 shortname = ""
@@ -103,22 +103,22 @@ clientSecret = ""
 autoCreateIssue = false
 
 [comments.waline]
-serverURL = "https://waline.aiar.site/"
-lang = "zh-CN"
+serverURL = ""
+lang = ""
 pageview = true
 comment = true
 search = false
-emoji = ["https://unpkg.com/@waline/emojis@1.1.0/alus", "https://unpkg.com/@waline/emojis@1.1.0/bilibili", "https://cdn.jsdelivr.net/gh/walinejs/emojis/weibo"]
-requiredMeta = ["name", "email"]
+emoji = []
+requiredMeta = []
 
 [comments.waline.locale]
-admin = "Admin"
+admin = ""
 
 [comments.twikoo]
-envId = ""
+envId = "https://rococo-semifreddo-eb0c4f.netlify.app/.netlify/functions/twikoo"
 region = ""
 path = ""
-lang = ""
+lang = "zh-CN"
 
 [comments.cactus]
 defaultHomeserverUrl = "https://matrix.cactus.chat:8448"
