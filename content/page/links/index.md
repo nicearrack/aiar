@@ -48,5 +48,5 @@ image: https://s11.ax1x.com/2024/01/08/pFShmWt.jpg
 - title: Aiar's Site
   description: 愿余生所有的珍惜，都不用失去来懂得。
   website: https://aiar.site
-  image: https://s11.ax1x.com/2024/01/08/pFSgah6.png
+  image: https://aiar.site/favicon.ico
 ```
