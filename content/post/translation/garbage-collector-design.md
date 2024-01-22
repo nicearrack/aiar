@@ -1,5 +1,6 @@
 ---
 title: "[译] CPython垃圾回收器的设计"
+slug: 52397c9cfe524c17a37e15b83a022f94
 description: 主要介绍了 CPython 垃圾回收机制
 date: 2024-01-12T14:19:45+08:00
 image: https://s11.ax1x.com/2024/01/16/pFFyS10.png

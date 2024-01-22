@@ -1,5 +1,6 @@
 ---
 title: "[译] PEP289 - 生成式表达式"
+slug: 58ee3468894b4f4e8eb1c7b32e008251
 description: 本篇 PEP 介绍了生成器表达式(Generator Expressions)这种高性能的，内存高效泛化的列表推导式(List Comprehensions)和生成器(generators)。
 date: 2021-05-21T09:03:49+08:00
 image: https://s11.ax1x.com/2024/01/08/pFShKQf.png

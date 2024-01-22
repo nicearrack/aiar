@@ -1,5 +1,6 @@
 ---
 title: "[译] Fish 命令行的生产效率"
+slug: f4273dc3df9447f2ae8f9c58d9df142e
 description: 用 Fish 终端处理事务，你将拥有不止一种解决问题的途径，这是她的魅力所在。无止境的定制方案和调整插件可以让事务更快速，更高效的被处理完成。
 date: 2020-07-30T09:12:49+08:00
 image: https://s11.ax1x.com/2024/01/08/pFShEod.jpg

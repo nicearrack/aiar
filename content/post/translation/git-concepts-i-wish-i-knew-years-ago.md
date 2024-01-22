@@ -1,5 +1,6 @@
 ---
 title: "[译] 相见恨晚的 Git 命令"
+slug: cd5224ee1b194218bb7c286582bb4db2
 description: 我辈开发者使用最多的技术既不是 JavaScript，也不是 Python 或者 HTML。它甚至在面试中都很少被提到，也很少被列入工作的必备技术栈。没错，我说的正是 Git 和版本控制。
 date: 2020-07-03T08:54:48+08:00
 image: https://s11.ax1x.com/2024/01/08/pFShZFA.png

@@ -1,5 +1,6 @@
 ---
 title: "Python虚拟环境构建与新环境部署"
+slug: 2a95e2853e784470b1db121a406b90ac
 description: 简要记录Python原生虚拟环境的构建和在新环境部署的过程
 date: 2024-01-11T10:01:17+08:00
 image: https://s11.ax1x.com/2024/01/08/pFShAdH.png

@@ -1,5 +1,6 @@
 ---
 title: "Kafka 启用用户鉴权功能"
+slug: 90ecbc6e08ef41d184ee330d4e7f0b7b
 description: 记录为果奔的kafka加用户鉴权的过程。
 date: 2024-01-11T10:29:00+08:00
 image: https://s11.ax1x.com/2024/01/11/pF9gP1K.jpg

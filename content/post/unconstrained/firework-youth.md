@@ -1,5 +1,6 @@
 ---
 title: "焰火青年"
+slug: 1e90021ae5314282b83e9eb0da8b24f9
 description: “你从未看透，你只想感受，慷慨赴死的颤抖”
 date: 2022-12-28T14:32:30+08:00
 image: https://s11.ax1x.com/2024/01/08/pFSgUtx.jpg

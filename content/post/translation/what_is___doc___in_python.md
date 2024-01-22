@@ -1,5 +1,6 @@
 ---
 title: "[译] Python中的__doc__是啥"
+slug: fc3072369de748799c9cad55cb6eda25
 description: Python 的每个对象中都有一个叫做 `__doc__` 的属性，用来存放该对象的文档信息。比如对于 `Dog` 类，可以直接调用 `Dog.__doc__` 来获取它的文档字符串(docstring)信息
 date: 2023-01-30T09:56:47+08:00
 image: https://s11.ax1x.com/2024/01/08/pFShAdH.png

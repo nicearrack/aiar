@@ -1,5 +1,6 @@
 ---
 title: "crontab定时执行Kettle Job"
+slug: 9238c7b48c0d46679242255cb1d09f96
 description: 使用 crontab 定时调度 Kettle 作业
 date: 2024-01-11T10:21:10+08:00
 image: https://s11.ax1x.com/2024/01/09/pFp61fK.png

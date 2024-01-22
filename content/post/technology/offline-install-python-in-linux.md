@@ -1,5 +1,6 @@
 ---
 title: "在Linux中离线编译安装Python"
+slug: 0820636dfb6845c58164439d206e9baf
 description: 最近在将 Python3.6 升级为 Python3.9，记录下过程。
 date: 2024-01-11T10:07:40+08:00
 image: https://s11.ax1x.com/2024/01/08/pFShAdH.png

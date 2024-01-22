@@ -1,5 +1,6 @@
 ---
 title: "Pentaho-Kettle里踩过的坑"
+slug: 600e20d420d8434c9d87cc2f3bdf2d99
 description: 那些在Kettle里踩过的坑，说多了都是泪。。
 date: 2021-04-28T11:32:48+08:00
 image: https://s11.ax1x.com/2024/01/09/pFp61fK.png

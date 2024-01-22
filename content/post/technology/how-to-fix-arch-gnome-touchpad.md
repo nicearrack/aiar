@@ -1,5 +1,6 @@
 ---
 title: "Arch+Gnome 触摸板功能忽然不全了怎么办"
+slug: e93e60bf2eca473da47d60de30ebcdba
 description: 某一次重启之后, 触摸板无法 tap to click, 无法触发三指四指的手势事件, 一指两指滑动功能还可以使用。以下记录修复过程。
 
 date: 2022-02-21T17:22:12+08:00
