@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Kafka on Aiar's Site</title><link>https://aiar.site/tags/kafka/</link><description>Recent content in Kafka on Aiar's Site</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Thu, 11 Jan 2024 10:29:00 +0800</lastBuildDate><atom:link href="https://aiar.site/tags/kafka/index.xml" rel="self" type="application/rss+xml"/><item><title>Kafka 启用用户鉴权功能</title><link>https://aiar.site/post/90ecbc6e08ef41d184ee330d4e7f0b7b/</link><pubDate>Thu, 11 Jan 2024 10:29:00 +0800</pubDate><guid>https://aiar.site/post/90ecbc6e08ef41d184ee330d4e7f0b7b/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/11/pF9gP1K.jpg" alt="Featured image of post Kafka 启用用户鉴权功能" />&lt;h2 id="目标">目标&lt;/h2>
+&lt;p>将使用 &lt;a class="link" href="https://kafka.apache.org/documentation/#security_sasl_scram" target="_blank" rel="noopener"
+>SASL/SCRAM&lt;/a> 认证管理协议进行用户管理，密码采用 &lt;code>SCRAM-SHA-256&lt;/code> 作加密处理。&lt;a class="link" href="https://www.orchome.com/1946" target="_blank" rel="noopener"
+>中文文档&lt;/a>&lt;/p>
+&lt;p>通过 &lt;a class="link" href="https://kafka.apache.org/documentation/#security_authz" target="_blank" rel="noopener"
+>ACLs&lt;/a> 进行用户权限管理。&lt;/p>
+&lt;h2 id="operation">Operation&lt;/h2>
+&lt;h3 id="backup-config">Backup Config&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> &lt;span class="o">[&lt;/span>KAFKA_HOME&lt;span class="o">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ cp -R config config_bak
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="start-zookeeper--kafka-if-no-start">Start Zookeeper &amp;amp; Kafka If No Start&lt;/h3>
+&lt;p>&lt;code>-daemon&lt;/code> 为后台守护启动&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ ./bin/zookeeper-server-start.sh -daemon ./config/zookeeper.properties
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/kafka-server-start.sh -daemon ./config/server.properties
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="add-users">Add Users&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ bin/kafka-configs.sh --bootstrap-server localhost:9092 --alter --add-config &lt;span class="s1">&amp;#39;SCRAM-SHA-256=[password=xG0^qO5&amp;amp;]&amp;#39;&lt;/span> --entity-type users --entity-name admin
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ bin/kafka-configs.sh --bootstrap-server localhost:9092 --alter --add-config &lt;span class="s1">&amp;#39;SCRAM-SHA-256=[iterations=8192,password=hL7!rV4^]&amp;#39;&lt;/span> --entity-type users --entity-name thtf
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ bin/kafka-configs.sh --bootstrap-server localhost:9092 --describe --entity-type users
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="configuring-kafka-brokers">Configuring Kafka Brokers&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">// kafka-admin-jaas.conf
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">KafkaServer {
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> org.apache.kafka.common.security.scram.ScramLoginModule required
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> username=&amp;#34;admin&amp;#34;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> password=&amp;#34;123456&amp;#34;;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">};
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">KafkaClient {
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> org.apache.kafka.common.security.scram.ScramLoginModule required
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> username=&amp;#34;admin&amp;#34;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> password=&amp;#34;123456&amp;#34;;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">};
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="configure-kafka-server-sasl-properties">Configure Kafka Server SASL Properties&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ vi config/server.properties
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># config/server.properties&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">listeners&lt;/span>&lt;span class="o">=&lt;/span>SASL_PLAINTEXT://0.0.0.0:9092
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">advertised.listeners&lt;span class="o">=&lt;/span>SASL_PLAINTEXT://192.168.1.237:9092
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">security.inter.broker.protocol&lt;span class="o">=&lt;/span>SASL_PLAINTEXT
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">sasl.mechanism.inter.broker.protocol&lt;span class="o">=&lt;/span>SCRAM-SHA-256
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">sasl.enabled.mechanisms&lt;span class="o">=&lt;/span>SCRAM-SHA-256
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">authorizer.class.name&lt;span class="o">=&lt;/span>kafka.security.authorizer.AclAuthorizer
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">super.users&lt;span class="o">=&lt;/span>User:admin
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="configure-kafka-client-sasl-properties">Configure Kafka Client SASL Properties&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ vi config/sasl.conf
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># config/sasl.conf&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">security.protocol&lt;span class="o">=&lt;/span>SASL_PLAINTEXT
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">sasl.mechanism&lt;span class="o">=&lt;/span>SCRAM-SHA-256
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="optional-create-start-shell-for-kafka-service-with-jaas">[Optional] Create Start Shell for Kafka Service with JAAS&lt;/h3>
+&lt;p>** this way is the same as using .env and original start shell**&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ cp ./bin/kafka-server-start.sh ./bin/kafka-jaas-server-start.sh
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ vim ./bin/kafka-jaas-server-start.sh
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># ./bin/kafka-jaas-server-start.sh&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># to the end of file&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">export&lt;/span> &lt;span class="nv">JAAS_CONF&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="s2">&amp;#34;-Djava.security.auth.login.config=&lt;/span>&lt;span class="nv">$base_dir&lt;/span>&lt;span class="s2">/../config/kafka-admin-jaas.conf&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">exec&lt;/span> &lt;span class="nv">$base_dir&lt;/span>/kafka-run-class.sh &lt;span class="nv">$EXTRA_ARGS&lt;/span> &lt;span class="nv">$JAAS_CONF&lt;/span> kafka.Kafka &lt;span class="s2">&amp;#34;&lt;/span>&lt;span class="nv">$@&lt;/span>&lt;span class="s2">&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="control-kafka_opts-by-env">Control KAFKA_OPTS by .env&lt;/h3>
+&lt;p>**Notice: Must register KAFKA_OPTS param like below to ENVIRONMENT if you want to use any operation in ./bin **&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># .env&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">export&lt;/span> &lt;span class="nv">KAFKA_OPTS&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="s2">&amp;#34;-Djava.security.auth.login.config=./config/kafka-admin-jaas.conf&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="restart-service">Restart Service&lt;/h3>
+&lt;p>&lt;strong>Notice: Command order can NOT be reversed&lt;/strong>&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> &lt;span class="o">[&lt;/span>KAFKA_HOME&lt;span class="o">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/kafka-server-stop.sh
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/zookeeper-server-stop.sh
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> .env
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/zookeeper-server-start.sh -daemon ./config/zookeeper.properties
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/kafka-server-start.sh -daemon ./config/server.properties
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="add-acls-for-users">Add ACLs for Users&lt;/h3>
+&lt;p>&lt;strong>Notice: Must set this AFTER configuring Authentication and restarting kafka service&lt;/strong>&lt;/p>
+&lt;p>producer&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ bin/kafka-acls.sh --bootstrap-server localhost:9092 --command-config config/sasl.conf --add --allow-principal User:test-user --producer --topic test-topic
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>consumer&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ bin/kafka-acls.sh --bootstrap-server localhost:9092 --command-config config/sasl.conf --add --allow-principal User:test-user --consumer --topic test-topic --group test-group
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div></description></item></channel></rss>

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Hadoop on Aiar's Site</title><link>https://aiar.site/tags/hadoop/</link><description>Recent content in Hadoop on Aiar's Site</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Wed, 15 Jun 2022 16:41:06 +0800</lastBuildDate><atom:link href="https://aiar.site/tags/hadoop/index.xml" rel="self" type="application/rss+xml"/><item><title>Hadoop生态圈</title><link>https://aiar.site/post/ace913866d0649cc9a8f2940214f74c7/</link><pubDate>Wed, 15 Jun 2022 16:41:06 +0800</pubDate><guid>https://aiar.site/post/ace913866d0649cc9a8f2940214f74c7/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFSg01O.png" alt="Featured image of post Hadoop生态圈" />&lt;blockquote>
+&lt;p>任何值得做的事, 做的糟糕也值得&lt;/p>
+&lt;/blockquote>
+&lt;p>原文: &lt;a class="link" href="https://www.zhihu.com/question/27974418/answer/38965760" target="_blank" rel="noopener"
+>知乎 Xiaoyu Ma 的回答&lt;/a>&lt;/p>
+&lt;h2 id="概述">概述&lt;/h2>
+&lt;p>Hadoop生态圈中各项基本都是为了处理超过单机尺寸的数据而诞生, 每项工具各有特色各有各的用处, 但互相之间又有重合.
+可以把他们比作厨房所需的各种工具, 可以用汤锅直接当作碗来吃饭喝汤, 可以用菜刀来削皮. 虽然奇怪的组合也能工作, 但未必是最佳选择.&lt;/p>
+&lt;h2 id="hdfs">HDFS&lt;/h2>
+&lt;p>大数据, 首先就要存的下海量的数据.&lt;/p>
+&lt;p>一台机器的容量不够, 那就多加几台机器, 总能存的下, 但是传统文件系统是单机的, 无法横跨不同机器. 使用多台机器存储就得同时分别管理每台机器的文件系统, 繁琐又费事.&lt;/p>
+&lt;p>所以 HDFS(Hadoop Distributed File System) 设计的本质就是为了大量数据可以横跨成百上千台机器, 仅使用一个文件系统来对其进行管理.
+极大的减轻了维护的成本, 降低了使用的难度.&lt;/p>
+&lt;h2 id="计算引擎">计算引擎&lt;/h2>
+&lt;p>存的下海量数据后, 就会开始考虑如何处理数据.&lt;/p>
+&lt;p>虽然 HDFS 可以为我们整体管理不同机器上的数据, 但是这些数据太大了. 一台机器处理成T上P的数据, 慢慢跑也许需要好几天甚至好几周. 对于很多场景, 这种效率是无法忍受的. 比如24小时热搜, 就必须在一天之内处理完毕.&lt;/p>
+&lt;p>如果使用多台机器分块处理, 就会面临如何进行工作分配, 机器挂了如何重启相应任务, 机器之间如何信息交互, 最终结果如何整体汇总等等一系列问题.&lt;/p>
+&lt;p>而计算引擎的引入正是为了解决这些问题. MapReduce 是第一代计算引擎, Tez/Spark 是第二代.&lt;/p>
+&lt;h3 id="mapreduce">MapReduce&lt;/h3>
+&lt;p>MapReduce 使用很简化的计算模型, 只有 Map 和 Reduce 两个计算过程(中间使用 Shuffle 串联). 用这个模型已经可以处理大数据领域很大一部分问题了.&lt;/p>
+&lt;p>什么是 Map, 什么是 Reduce?&lt;/p>
+&lt;p>考虑有一个存储在类似 HDFS 中的巨大文本, 现在要统计其中各个词出现的频次. 于是我们启动了一个 MapReduce 程序.&lt;/p>
+&lt;p>Map 阶段, 成百上千台机器读取这个文件的各个部分, 把各自读到的部分分别统计出词频.
+每台机器都会产生类似 &lt;code>[('hello', 12110), ('world', 12345), ...]&lt;/code> 这样的 Pair. 这些机器被称为 Mapper.&lt;/p>
+&lt;p>然后进入 Reduce 阶段, 此时会启动大量的机器将 Map 阶段产生的 Pair 进行分批统计, 最后再进行统一整合, 生成最终的词频统计结果.&lt;/p>
+&lt;h3 id="tezspark">Tez/Spark&lt;/h3>
+&lt;p>Map + Reduce 的简单模型很是暴力, 虽然好用, 但是很笨重.&lt;/p>
+&lt;p>第二代的 Tez 和 Spark 除了内存缓存之类的新功能之外, 本质上是让 Map/Reduce 模型更加的通用化, Map 和 Reduce 之间的界限更加模糊, 数据交换变得更为灵活, 进一步减少了磁盘的读写, 以便于描述更加复杂的算法, 取得更高的吞吐量.&lt;/p>
+&lt;h2 id="语言层抽象pighive">语言层抽象(Pig/Hive)&lt;/h2>
+&lt;p>有了 MapReduce, Tez 和 Spark 之后, 程序员们发现 MapReduce 的程序写起来真麻烦, 他们希望简化这个过程.&lt;/p>
+&lt;p>好比有了汇编语言, 虽然几乎什么都能干了, 但还是觉得繁琐. 所以就希望有个更高级更抽象的语言层, 来描述算法和数据处理流程.&lt;/p>
+&lt;p>于是就有了 Pig 和 Hive. Pig 是以接近脚本的方式来描述 MapReduce, 而 Hive 则用的是 SQL.&lt;/p>
+&lt;p>它们把脚本和SQL语言翻译成 MapReduce 程序, 丢给计算引擎去计算, 而用户就可以从繁杂的 MapReduce 程序中解放出来, 用更简单更直观的语言去写程序.&lt;/p>
+&lt;p>当然, 针对第二代的计算引擎, 也有类似的 Hive on Tez, Hive on Spark 以及 SparkSQL 等等.&lt;/p>
+&lt;h2 id="承上启下">承上启下&lt;/h2>
+&lt;p>以上介绍的基本就是一个数据仓库的基本架构了, 最底层 HDFS 用以存储数据, 中层 MapReduce/Tez/Spark 构成数据计算引擎, 上层 Pig/Hive 提供给用户更简洁的交互接口. 这样基本就解决了中低速数据处理的需求.&lt;/p>
+&lt;p>那如果想要更快速呢?&lt;/p>
+&lt;p>像微博热搜这种产品, 用户需要的是一个不断变化的榜单, 更新延迟在一分钟之内, 上面的手段就无法胜任了. 于是一种新的计算模式被开发出来, 那就是流计算.&lt;/p>
+&lt;h2 id="流计算">流计算&lt;/h2>
+&lt;p>Storm 是最流行的流计算平台, 流计算的思路是, 如果要达到更实时的更新, 我为何不在数据流进来的时候就处理了?&lt;/p>
+&lt;p>比如还是词频统计, 数据流是一个一个的词, 就让他们一边流过, 我一边就开始统计了.&lt;/p>
+&lt;p>流计算很强大, 基本无延迟. 但他的短处是, 不灵活. 你想要统计的东西必须预先知道, 毕竟数据流过了就没了, 没算的东西也就没法补算了. 因此, 它是个很好的东西, 但是无法替代数据仓库和批处理系统.&lt;/p>
+&lt;h2 id="kv-store">KV Store&lt;/h2>
+&lt;p>键值存储这个模块比较独立, 有非常非常多的实现, 比如 HBase, MongoDB 等等等等.&lt;/p>
+&lt;p>它的作用就是可以非常快速的通过 Key 来找到对应的 Value. 比如用身份证号取到身份数据. 当然这个 MapReduce 来实现, 但是很可能要扫描整个数据集. 而 KV Store 专用来处理这个操作, 所有存和取的操作都专门为此优化了, 从几个P的数据中查找一个身份证号, 可能只需要零点几秒.&lt;/p>
+&lt;p>KV Store 的基本理念是, 基本无法处理复杂计算, 大多没法 JOIN, 也许没法聚合, 没有强一致性保护, 但就是快, 极快.&lt;/p>
+&lt;h2 id="其他">其他&lt;/h2>
+&lt;p>除了以上这些, 还有些更为特制的系统/组件. 比如 Mahout 是分布式机器学习库, Protobuf 是数据交换的编码和库, Zookeeper 是高一致性的分布存取协同系统, 等等.&lt;/p>
+&lt;h2 id="调度系统">调度系统&lt;/h2>
+&lt;p>有了这么多乱七八糟的工具, 都在一个集群上运转, 大家都需要相互配合有序工作, 所以调度组件就十分重要. 现在最流行的就是 Yarn.&lt;/p></description></item></channel></rss>

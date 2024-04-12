@@ -1,0 +1,523 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>技术 on Aiar's Site</title><link>https://aiar.site/categories/%E6%8A%80%E6%9C%AF/</link><description>Recent content in 技术 on Aiar's Site</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Thu, 11 Jan 2024 10:29:00 +0800</lastBuildDate><atom:link href="https://aiar.site/categories/%E6%8A%80%E6%9C%AF/index.xml" rel="self" type="application/rss+xml"/><item><title>Kafka 启用用户鉴权功能</title><link>https://aiar.site/post/90ecbc6e08ef41d184ee330d4e7f0b7b/</link><pubDate>Thu, 11 Jan 2024 10:29:00 +0800</pubDate><guid>https://aiar.site/post/90ecbc6e08ef41d184ee330d4e7f0b7b/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/11/pF9gP1K.jpg" alt="Featured image of post Kafka 启用用户鉴权功能" />&lt;h2 id="目标">目标&lt;/h2>
+&lt;p>将使用 &lt;a class="link" href="https://kafka.apache.org/documentation/#security_sasl_scram" target="_blank" rel="noopener"
+>SASL/SCRAM&lt;/a> 认证管理协议进行用户管理，密码采用 &lt;code>SCRAM-SHA-256&lt;/code> 作加密处理。&lt;a class="link" href="https://www.orchome.com/1946" target="_blank" rel="noopener"
+>中文文档&lt;/a>&lt;/p>
+&lt;p>通过 &lt;a class="link" href="https://kafka.apache.org/documentation/#security_authz" target="_blank" rel="noopener"
+>ACLs&lt;/a> 进行用户权限管理。&lt;/p>
+&lt;h2 id="operation">Operation&lt;/h2>
+&lt;h3 id="backup-config">Backup Config&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> &lt;span class="o">[&lt;/span>KAFKA_HOME&lt;span class="o">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ cp -R config config_bak
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="start-zookeeper--kafka-if-no-start">Start Zookeeper &amp;amp; Kafka If No Start&lt;/h3>
+&lt;p>&lt;code>-daemon&lt;/code> 为后台守护启动&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ ./bin/zookeeper-server-start.sh -daemon ./config/zookeeper.properties
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/kafka-server-start.sh -daemon ./config/server.properties
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="add-users">Add Users&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ bin/kafka-configs.sh --bootstrap-server localhost:9092 --alter --add-config &lt;span class="s1">&amp;#39;SCRAM-SHA-256=[password=xG0^qO5&amp;amp;]&amp;#39;&lt;/span> --entity-type users --entity-name admin
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ bin/kafka-configs.sh --bootstrap-server localhost:9092 --alter --add-config &lt;span class="s1">&amp;#39;SCRAM-SHA-256=[iterations=8192,password=hL7!rV4^]&amp;#39;&lt;/span> --entity-type users --entity-name thtf
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ bin/kafka-configs.sh --bootstrap-server localhost:9092 --describe --entity-type users
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="configuring-kafka-brokers">Configuring Kafka Brokers&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">// kafka-admin-jaas.conf
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">KafkaServer {
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> org.apache.kafka.common.security.scram.ScramLoginModule required
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> username=&amp;#34;admin&amp;#34;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> password=&amp;#34;123456&amp;#34;;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">};
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">KafkaClient {
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> org.apache.kafka.common.security.scram.ScramLoginModule required
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> username=&amp;#34;admin&amp;#34;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> password=&amp;#34;123456&amp;#34;;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">};
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="configure-kafka-server-sasl-properties">Configure Kafka Server SASL Properties&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ vi config/server.properties
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># config/server.properties&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">listeners&lt;/span>&lt;span class="o">=&lt;/span>SASL_PLAINTEXT://0.0.0.0:9092
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">advertised.listeners&lt;span class="o">=&lt;/span>SASL_PLAINTEXT://192.168.1.237:9092
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">security.inter.broker.protocol&lt;span class="o">=&lt;/span>SASL_PLAINTEXT
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">sasl.mechanism.inter.broker.protocol&lt;span class="o">=&lt;/span>SCRAM-SHA-256
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">sasl.enabled.mechanisms&lt;span class="o">=&lt;/span>SCRAM-SHA-256
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">authorizer.class.name&lt;span class="o">=&lt;/span>kafka.security.authorizer.AclAuthorizer
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">super.users&lt;span class="o">=&lt;/span>User:admin
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="configure-kafka-client-sasl-properties">Configure Kafka Client SASL Properties&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ vi config/sasl.conf
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># config/sasl.conf&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">security.protocol&lt;span class="o">=&lt;/span>SASL_PLAINTEXT
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">sasl.mechanism&lt;span class="o">=&lt;/span>SCRAM-SHA-256
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="optional-create-start-shell-for-kafka-service-with-jaas">[Optional] Create Start Shell for Kafka Service with JAAS&lt;/h3>
+&lt;p>** this way is the same as using .env and original start shell**&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ cp ./bin/kafka-server-start.sh ./bin/kafka-jaas-server-start.sh
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ vim ./bin/kafka-jaas-server-start.sh
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># ./bin/kafka-jaas-server-start.sh&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># to the end of file&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">export&lt;/span> &lt;span class="nv">JAAS_CONF&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="s2">&amp;#34;-Djava.security.auth.login.config=&lt;/span>&lt;span class="nv">$base_dir&lt;/span>&lt;span class="s2">/../config/kafka-admin-jaas.conf&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">exec&lt;/span> &lt;span class="nv">$base_dir&lt;/span>/kafka-run-class.sh &lt;span class="nv">$EXTRA_ARGS&lt;/span> &lt;span class="nv">$JAAS_CONF&lt;/span> kafka.Kafka &lt;span class="s2">&amp;#34;&lt;/span>&lt;span class="nv">$@&lt;/span>&lt;span class="s2">&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="control-kafka_opts-by-env">Control KAFKA_OPTS by .env&lt;/h3>
+&lt;p>**Notice: Must register KAFKA_OPTS param like below to ENVIRONMENT if you want to use any operation in ./bin **&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># .env&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">export&lt;/span> &lt;span class="nv">KAFKA_OPTS&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="s2">&amp;#34;-Djava.security.auth.login.config=./config/kafka-admin-jaas.conf&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="restart-service">Restart Service&lt;/h3>
+&lt;p>&lt;strong>Notice: Command order can NOT be reversed&lt;/strong>&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> &lt;span class="o">[&lt;/span>KAFKA_HOME&lt;span class="o">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/kafka-server-stop.sh
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/zookeeper-server-stop.sh
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> .env
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/zookeeper-server-start.sh -daemon ./config/zookeeper.properties
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./bin/kafka-server-start.sh -daemon ./config/server.properties
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="add-acls-for-users">Add ACLs for Users&lt;/h3>
+&lt;p>&lt;strong>Notice: Must set this AFTER configuring Authentication and restarting kafka service&lt;/strong>&lt;/p>
+&lt;p>producer&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ bin/kafka-acls.sh --bootstrap-server localhost:9092 --command-config config/sasl.conf --add --allow-principal User:test-user --producer --topic test-topic
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>consumer&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ bin/kafka-acls.sh --bootstrap-server localhost:9092 --command-config config/sasl.conf --add --allow-principal User:test-user --consumer --topic test-topic --group test-group
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div></description></item><item><title>crontab定时执行Kettle Job</title><link>https://aiar.site/post/9238c7b48c0d46679242255cb1d09f96/</link><pubDate>Thu, 11 Jan 2024 10:21:10 +0800</pubDate><guid>https://aiar.site/post/9238c7b48c0d46679242255cb1d09f96/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/09/pFp61fK.png" alt="Featured image of post crontab定时执行Kettle Job" />&lt;p>&lt;strong>注：使用 corntab 进行调度务必请将Kettle自身调度和循环关闭&lt;/strong>&lt;/p>
+&lt;h2 id="1环境准备">1.环境准备&lt;/h2>
+&lt;h3 id="11-检查资源库配置文件-kettlerepositoriesxml-存在性">1.1 检查资源库配置文件 &lt;code>.kettle/repositories.xml&lt;/code> 存在性&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ cat /home/etl/.kettle/repositories.xml
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>不存在则以 &lt;code>1.2&lt;/code> 中内容模板新建文件&lt;/p>
+&lt;h3 id="12-检查资源库路径是否符合预期">1.2 检查资源库路径是否符合预期&lt;/h3>
+&lt;p>将 &lt;code>&amp;lt;base_directory&amp;gt;&amp;lt;/base_directory&amp;gt;&lt;/code> 标签中的目录位置修改为期望的资源库路径&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-xml" data-lang="xml">&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&amp;lt;?xml version=&amp;#34;1.0&amp;#34; encoding=&amp;#34;UTF-8&amp;#34;?&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nt">&amp;lt;repositories&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;repository&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;id&amp;gt;&lt;/span>KettleFileRepository&lt;span class="nt">&amp;lt;/id&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;name&amp;gt;&lt;/span>Resources&lt;span class="nt">&amp;lt;/name&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;description&amp;gt;&lt;/span>File repository-Resources&lt;span class="nt">&amp;lt;/description&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;is_default&amp;gt;&lt;/span>true&lt;span class="nt">&amp;lt;/is_default&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;base_directory&amp;gt;&lt;/span>/home/etl/data-integration/Resources&lt;span class="nt">&amp;lt;/base_directory&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;read_only&amp;gt;&lt;/span>N&lt;span class="nt">&amp;lt;/read_only&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;hides_hidden_files&amp;gt;&lt;/span>N&lt;span class="nt">&amp;lt;/hides_hidden_files&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;/repository&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nt">&amp;lt;/repositories&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="13-上传文件到服务器资源库">1.3 上传文件到服务器资源库&lt;/h3>
+&lt;p>将配置好的作业和转换xml文件上传至服务器资源库，例如使用 &lt;code>xftp&lt;/code> 等工具&lt;/p>
+&lt;h2 id="2调试配置调度">2.调试配置调度&lt;/h2>
+&lt;h3 id="21-测试单次调用">2.1 测试单次调用&lt;/h3>
+&lt;p>使用 &lt;code>curl&lt;/code> 工具通过Kettle自带接口触发作业单次执行。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ curl -u &lt;span class="o">{&lt;/span>用户名&lt;span class="o">}&lt;/span>:&lt;span class="o">{&lt;/span>密码&lt;span class="o">}&lt;/span> &lt;span class="s2">&amp;#34;http://{ip}:{port}/kettle/executeJob/?rep={资源库名称}&amp;amp;job={作业名称}&amp;#34;&lt;/span>&lt;span class="sb">`&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>说明：&lt;/p>
+&lt;ol>
+&lt;li>用户名和密码是Kettle子服务器的密码&lt;/li>
+&lt;li>&lt;code>{}&lt;/code> 代表替换参数，url中有 &lt;code>&amp;amp;&lt;/code> 所以整体需要加上 &lt;code>&amp;quot;&amp;quot;&lt;/code>&lt;/li>
+&lt;li>Kettle自带接口的触发机制不在本文讨论范围，只需要知道可以以get请求固定格式url即可执行指定作业就好了&lt;/li>
+&lt;/ol>
+&lt;p>实例：触发执行本机Resources资源库的0494J作业&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ curl -u cluster:cluster &lt;span class="s2">&amp;#34;http://127.0.0.1:8080/kettle/executeJob/?rep=Resources&amp;amp;job=0494J&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;a class="link" href="https://www.ruanyifeng.com/blog/2019/09/curl-reference.html" target="_blank" rel="noopener"
+>这里&lt;/a>是curl的用法指南。&lt;/p>
+&lt;p>通了会显示如下信息，异常则会显示相应异常信息:&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-xml" data-lang="xml">&lt;span class="line">&lt;span class="cl">&lt;span class="nt">&amp;lt;webresult&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;result&amp;gt;&lt;/span>OK&lt;span class="nt">&amp;lt;/result&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;message&amp;gt;&lt;/span>Job started&lt;span class="nt">&amp;lt;/message&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nt">&amp;lt;id&amp;gt;&lt;/span>d996f743-bc27-46da-862b-6ea8be6cf4d2&lt;span class="nt">&amp;lt;/id&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nt">&amp;lt;/webresult&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="22-配置循环调度">2.2 配置循环调度&lt;/h3>
+&lt;p>使用 &lt;code>crontab&lt;/code> 工具实现循环调度。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ crontab -l &lt;span class="c1"># 显示当前用户所有cron任务&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ crontab -e &lt;span class="c1"># 编辑修改增删cron任务，编辑器走VISUAL或EDITOR环境变量，可通过 `echo $EDITOR` 命令查看&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ tail -f /var/log/cron &lt;span class="c1"># 查看cron任务执行日志&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>实例：创建一个每5分钟执行一次的调度任务&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ crontab -e
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">*/5 * * * * /usr/bin/curl -u cluster:cluster &lt;span class="s2">&amp;#34;http://127.0.0.1:8080/kettle/executeJob/?rep=Resources&amp;amp;job=0494J&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;a class="link" href="https://crontab.guru/" target="_blank" rel="noopener"
+>这里&lt;/a>是crontab的用法指南。
+&lt;a class="link" href="https://cloud.tencent.com/developer/article/1951645" target="_blank" rel="noopener"
+>这里&lt;/a>是vim的用法指南。&lt;/p></description></item><item><title>在Linux中离线编译安装Python</title><link>https://aiar.site/post/0820636dfb6845c58164439d206e9baf/</link><pubDate>Thu, 11 Jan 2024 10:07:40 +0800</pubDate><guid>https://aiar.site/post/0820636dfb6845c58164439d206e9baf/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShAdH.png" alt="Featured image of post 在Linux中离线编译安装Python" />&lt;h2 id="概述">概述&lt;/h2>
+&lt;p>最近在将 Python3.6 升级为 Python3.9，记录下过程。
+由于服务器环境均无法连接互联网，故采用从可联网机器上下载安装包再上传至服务器离线编译安装的方式。&lt;/p>
+&lt;p>本文默认没有专职服务器运维人员，个人拥有服务器所有权限。（有专业人员哪还用得着自己装。。ORZ）&lt;/p>
+&lt;p>下文在 &lt;code>CentOS 7.8&lt;/code> 中实测成功。&lt;/p>
+&lt;h2 id="依赖">依赖&lt;/h2>
+&lt;p>在安装 Python 时，程序会依赖一些系统程序。为了能正确安装，需要提前将这些依赖装好。&lt;/p>
+&lt;p>可以在 &lt;a class="link" href="https://pkgs.org/" target="_blank" rel="noopener"
+>这里&lt;/a> 按照系统版本和所需包搜索下载。&lt;/p>
+&lt;p>ps: 说实话，其实装的时候还是有点慌的&lt;/p>
+&lt;p>&lt;em>以 CentOS 7.8 为例，其他系统版本需编译试错、搜索&lt;/em>
+&lt;strong>编译工具&lt;/strong> (使用的是系统自带的)&lt;/p>
+&lt;ol>
+&lt;li>gcc == 4.8.5&lt;/li>
+&lt;li>make == 3.82&lt;/li>
+&lt;/ol>
+&lt;p>&lt;strong>系统依赖&lt;/strong>&lt;/p>
+&lt;ol>
+&lt;li>zlib-devel # 影响 zlib 包的安装&lt;/li>
+&lt;li>libffi-devel # 忘了影响啥，装就对了&lt;/li>
+&lt;li>openssl-devel # 影响 _ssl 包的安装，如果装了这个还是无法正确安装，则可以看 &lt;a class="link" href="#%e9%99%84%e5%bd%95" >后文附录部分&lt;/a>&lt;/li>
+&lt;li>bzip2-devel # 影响 _bz2 包的安装&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">The necessary bits to build these optional modules were not found:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_bz2 _curses _curses_panel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_dbm _gdbm _hashlib
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_lzma _sqlite3 _ssl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_tkinter _uuid readline
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">zlib
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_ctypes - libffi-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_bz2 - bzip2-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_uuid - uuid-devel/libuuid-devel 前者好像和gdbm-devel有冲突
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_lzma - xz-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_dbm - gdbm-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">zlib - zlib-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">readline - readline-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_hashlib - openssl11
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_ssl - openssl11
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="下载">下载&lt;/h2>
+&lt;p>Python官方下载地址：&lt;a class="link" href="https://www.python.org/downloads/" target="_blank" rel="noopener"
+>https://www.python.org/downloads/&lt;/a>&lt;br>
+Python官方 ftp 下载地址：&lt;a class="link" href="https://www.python.org/ftp/python/" target="_blank" rel="noopener"
+>https://www.python.org/ftp/python/&lt;/a>&lt;/p>
+&lt;p>可以按需下载相应的 Python 版本，由于是要在 Linux 中编译安装，所以我们需要下载 &lt;code>Gzipped source tarball&lt;/code> 或者 &lt;code>XZ compressed source tarball&lt;/code>，前者是 &lt;code>.tgz&lt;/code> 格式，后者是 &lt;code>.tar.xz&lt;/code>，正确解压后的结果无本质区别。&lt;/p>
+&lt;p>每个大版本中较新的版本建议从 ftp 中下载，downloads 中不是很全。&lt;/p>
+&lt;p>需要注意的是，Python 的同一个大版本在绝大多数情况下对于第三方包来说区别不大，
+即 &lt;code>Python 3.9.*&lt;/code> 中所有的版本，绝大部分情况都可以通用，差别细节详见官网版本介绍。&lt;/p>
+&lt;h2 id="解压">解压&lt;/h2>
+&lt;p>下载之后我们就会得到一个类似 &lt;code>Python-3.9.13.tgz&lt;/code> 这样的文件，将其上传到服务器之后，随便在一个地方进行解压即可，这个文件可以理解为一个安装包，具体安装到哪里需要后续配置。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> /path/to/xxx
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ tar -xvf Python-3.9.13.tgz
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="配置">配置&lt;/h2>
+&lt;p>然后进入到解压出的文件夹中，开始配置安装规则。&lt;/p>
+&lt;p>常用的参数就是 &lt;code>--prefix&lt;/code> 这个参数，它决定了Python将被安装在哪里。
+如果不填，将会默认安装到 &lt;code>/usr/local/python&lt;/code> 中，如此则后面的编译安装命令需要root权限，但一般 &lt;strong>不建议&lt;/strong> 这样，因为如此可能会导致将操作系统之前已有的 Python 强制覆盖，引发一系列不可控的问题。&lt;/p>
+&lt;p>该示例如果完成安装，则 Python 命令的可执行文件位置是 &lt;code>/home/app/depends/python/py39/bin/python3.9&lt;/code>&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> Python-3.9.13/
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./configure --prefix&lt;span class="o">=&lt;/span>/home/app/depends/python/py39
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>配置成功后，可能会有类似下文这样的建议，但笔者亲测，当 gcc 版本比较低时(比如本例中的4.8.5)，使用该建议无法编译成功。所以建议低版本的 gcc 不要使用 &lt;code>--enable-optimizations&lt;/code> 参数。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">If you want a release build with all stable optimizations active (PGO, etc),
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">please run ./configure --enable-optimizations
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="编译">编译&lt;/h2>
+&lt;p>配置如果没有问题，就可以开始编译了，如果安装到了系统目录下则需要root权限。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ make
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果依赖没有安装，或者遗漏，那么配置、编译这两步可能需要反复几次。
+判断自己需要的内置包能不能正常安装，就需要看 make 的执行结果，最后下面一块的内容会有类似下面这样的输出。如果其中没有 &lt;code>Failed&lt;/code> 或者 &lt;code>error&lt;/code> 等关键词出现，并且 &lt;code>necessary&lt;/code> 中缺少的包你未来也用不到，那么恭喜你可以进行下一步 &lt;strong>安装&lt;/strong> 了。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">Python build finished successfully!
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">The necessary bits to build these optional modules were not found:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_tkinter
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">To find the necessary bits, look in setup.py in detect_modules() for the module&amp;#39;s name.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">The following modules found by detect_modules() in setup.py, have been
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">built by the Makefile instead, as configured by the Setup files:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_abc atexit pwd
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">time
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>示例中的这次编译意味着，&lt;code>_tkinter&lt;/code> 由于缺少相应的依赖，将不会被安装。搜索后得知，缺少 &lt;code>tkinter&lt;/code> 这个包，可以参照上文 &lt;a class="link" href="#%e4%be%9d%e8%b5%96" >依赖&lt;/a> 进行安装。&lt;/p>
+&lt;p>具体哪些包依赖什么，可以以这样的关键词搜索: &lt;code>[系统版本] [Python版本] [缺失的包名] not found&lt;/code>，以 &lt;code>_tkinter&lt;/code> 为例，即 &lt;code>CentOS7 Python3 _tkinter not found&lt;/code>。
+如果是国外或开源的操作系统(RedHat、CentOS、Arch、Ubuntu等)建议使用 Google，无法科学上网则建议使用 bing 国际版。如果是国内自主开发的系统，建议使用bing，且尽可能看官方建议。&lt;/p>
+&lt;p>拒绝百度，从我做起。&lt;/p>
+&lt;h2 id="安装">安装&lt;/h2>
+&lt;p>一般来说，编译能过，而且不缺依赖，则安装就会比较顺。所以，请尽可能确保编译无误后，最后再执行安装。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ make install
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>没报错就算成功，如果配置时用了 &lt;code>--prefix&lt;/code> 参数指定了一个 &lt;strong>不在&lt;/strong> &lt;code>$PATH&lt;/code> 中的地址，则会有下面这样的提示。
+意思是，没办法直接用 &lt;code>python&lt;/code> 命令直接执行刚刚安装好的程序。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-gdscript3" data-lang="gdscript3">&lt;span class="line">&lt;span class="cl">&lt;span class="n">Installing&lt;/span> &lt;span class="n">collected&lt;/span> &lt;span class="n">packages&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="n">setuptools&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">pip&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">WARNING&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="n">The&lt;/span> &lt;span class="n">scripts&lt;/span> &lt;span class="n">pip3&lt;/span> &lt;span class="ow">and&lt;/span> &lt;span class="n">pip3&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="mi">9&lt;/span> &lt;span class="n">are&lt;/span> &lt;span class="n">installed&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="s1">&amp;#39;/path/to/python/bin&amp;#39;&lt;/span> &lt;span class="n">which&lt;/span> &lt;span class="n">is&lt;/span> &lt;span class="ow">not&lt;/span> &lt;span class="n">on&lt;/span> &lt;span class="n">PATH&lt;/span>&lt;span class="o">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Consider&lt;/span> &lt;span class="n">adding&lt;/span> &lt;span class="n">this&lt;/span> &lt;span class="n">directory&lt;/span> &lt;span class="n">to&lt;/span> &lt;span class="n">PATH&lt;/span> &lt;span class="ow">or&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">you&lt;/span> &lt;span class="n">prefer&lt;/span> &lt;span class="n">to&lt;/span> &lt;span class="n">suppress&lt;/span> &lt;span class="n">this&lt;/span> &lt;span class="n">warning&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">use&lt;/span> &lt;span class="o">--&lt;/span>&lt;span class="n">no&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="n">warn&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="n">script&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="n">location&lt;/span>&lt;span class="o">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Successfully&lt;/span> &lt;span class="n">installed&lt;/span> &lt;span class="n">pip&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="mf">22.0&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="mi">4&lt;/span> &lt;span class="n">setuptools&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="mf">58.1&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="mi">0&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>查看 PATH 命令&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">echo&lt;/span> &lt;span class="nv">$PATH&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果需要在终端直接执行 &lt;code>python&lt;/code>，这里提供两种方法来实现。&lt;/p>
+&lt;ol>
+&lt;li>使用软连接
+可以使用软连接将刚刚安装的 Python 放到 &lt;code>$PATH&lt;/code> 中的某个路径下，类似创建了一个快捷方式。
+比如，安装目录为 &lt;code>/new/path/to/python&lt;/code>，PATH 中有的路径 &lt;code>/xxx/xxx&lt;/code>&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ ln -s /new/path/to/python/bin/python3.9 /xxx/xxx/python3.9
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ln -s /new/path/to/python/bin/pip.9 /xxx/xxx/pip3.9
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="2">
+&lt;li>直接将安装目录放到 PATH 中
+假设默认 shell 是 bash，安装目录为 &lt;code>/new/path/to/python&lt;/code>。则修改该用户的 .bashrc 文件即可。&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ vim ~/.bashrc
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">~/.bashrc
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">export&lt;/span> &lt;span class="nv">PATH&lt;/span>&lt;span class="o">=&lt;/span>/new/path/to/python/bin:&lt;span class="nv">$PATH&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>保存文件后，执行&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> ~/.bashrc
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>以后该用户就可以直接使用 &lt;code>python3.9&lt;/code> 命令了。&lt;/p>
+&lt;h2 id="附录">附录&lt;/h2>
+&lt;p>当时的情况是，通过 &lt;code>yum&lt;/code> 安装 &lt;code>openssl-devel&lt;/code> 之后，在安装 &lt;code>Python3.9&lt;/code> 时 &lt;code>ssl&lt;/code> 模组仍无法正确安装(猜测是openssl版本过低，时间久远有点忘记细节了)，故使用编译安装的方式，重新装了一个 &lt;code>openssl-1.1.1&lt;/code>，再在编译 Python 时使用 &lt;code>--with-openssl&lt;/code> 参数，最后 ssl 成功安装。&lt;/p>
+&lt;p>下为当时的操作记录.&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">615 tar -zxvf openssl-1.1.1t.tar.gz
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">616 ll
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">617 cd openssl-1.1.1t/
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">618 ll
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">619 ./Configure -h
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">620 ./config -h
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">625 cd /path/xxxxx
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">626 mkdir openssl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">627 pwd
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">628 cd -
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">629 ./config --prefix=/path/to/openssl --openssldir=/path/to/openssl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">630 make
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">631 make install
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">632 cd -
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">633 ll openssl/
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">634 cd -
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">635 cd ..
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">636 cd Python-3.9.13/
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">646 ./configure --prefix=/path/to/py39 --with-openssl=/path/to/openssl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">647 make
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">648 make install
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">649 /path/to/python3.9
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">650 whereis python
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">664 echo $PATH
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">670 ln -s /path/to/py39/bin/python3.9 /path/in/$PATH/python3.9
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">671 ln -s /path/to/py39/bin/pip3.9 /path/in/$PATH/pip3.9
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">673 python3.9
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div></description></item><item><title>Python虚拟环境构建与新环境部署</title><link>https://aiar.site/post/2a95e2853e784470b1db121a406b90ac/</link><pubDate>Thu, 11 Jan 2024 10:01:17 +0800</pubDate><guid>https://aiar.site/post/2a95e2853e784470b1db121a406b90ac/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShAdH.png" alt="Featured image of post Python虚拟环境构建与新环境部署" />&lt;h2 id="系统环境">系统环境&lt;/h2>
+&lt;p>本文依赖机器为，64位 &lt;code>CentOS Linux 7.9.2009&lt;/code>，Python 使用 CentOS yum 直接安装的 &lt;code>3.6.8&lt;/code> 版本。&lt;/p>
+&lt;p>&lt;strong>Note:&lt;/strong> Windows，MacOS 流程大体相近，具体细节或有出入。Python2不在本文讨论范围。
+&lt;strong>Note:&lt;/strong> 本文依赖官方pip源，自建pypi的离线模式不在本文讨论范围。
+&lt;strong>Note:&lt;/strong> 本文虚拟环境仅使用标准库自带的 &lt;code>venv&lt;/code> 模块，第三方的poetry，pyenv等不在本文讨论范围。
+&lt;strong>Note:&lt;/strong> 关于项目部署，本文使用直接源码放上去的粗暴方式。打包成可执行文件或者whl安装又或CI/CD等方式不在本文讨论范围。&lt;/p>
+&lt;h2 id="虚拟环境">虚拟环境&lt;/h2>
+&lt;p>项目必须使用单独 &lt;a class="link" href="https://zhuanlan.zhihu.com/p/216157886" target="_blank" rel="noopener"
+>虚拟环境&lt;/a>，项目中用到的所有第三方包都需在虚拟环境中安装。目的是：&lt;/p>
+&lt;ol>
+&lt;li>项目中安装的依赖不会污染系统环境&lt;/li>
+&lt;li>项目开发完毕后可以快速整理依赖，方便部署&lt;/li>
+&lt;/ol>
+&lt;h3 id="创建">创建&lt;/h3>
+&lt;p>在项目根目录下利用 python 标准库的 &lt;code>venv&lt;/code> 模块创建名为 &lt;code>.venv&lt;/code> 的虚拟环境。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ mkdir myproject
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> myproject
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ python -m venv .venv
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ls -la
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">total &lt;span class="m">0&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">drwxrwxr-x. &lt;span class="m">3&lt;/span> node0 node0 &lt;span class="m">19&lt;/span> Mar &lt;span class="m">16&lt;/span> 15:54 .
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">drwxrwxr-x. &lt;span class="m">5&lt;/span> node0 node0 &lt;span class="m">54&lt;/span> Mar &lt;span class="m">16&lt;/span> 15:54 ..
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">drwxrwxr-x. &lt;span class="m">5&lt;/span> node0 node0 &lt;span class="m">74&lt;/span> Mar &lt;span class="m">16&lt;/span> 15:54 .venv
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="激活">激活&lt;/h3>
+&lt;p>激活后，命令提示符前面会有虚拟环境标识 &lt;code>(.venv)&lt;/code>。下文操作中带有该标记的即标识在虚拟环境中执行，没有该标记则表示在系统真实环境。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> .venv/bin/activate
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">---------- -------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="开发阶段">开发阶段&lt;/h2>
+&lt;p>&lt;strong>！！！强烈建议！！！&lt;/strong>
+还是找一个在线的环境进行开发，离线开发实属给自己找罪受。&lt;/p>
+&lt;h3 id="依赖安装升级">依赖安装&amp;amp;升级&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install requests &lt;span class="c1"># 默认安装该包可用的最新版&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install &lt;span class="nv">requests&lt;/span>&lt;span class="o">==&lt;/span>21.2 &lt;span class="c1"># 安装指定版本&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install --upgrade requests &lt;span class="c1"># 升级包到最新版本&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="optional-升级pip">[Optional] 升级pip&lt;/h3>
+&lt;p>有时pip版本过低，导致部分第三方包无法安装，可以尝试升级pip版本。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip &lt;span class="o">(&lt;/span>9.0.3&lt;span class="o">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools &lt;span class="o">(&lt;/span>39.2.0&lt;span class="o">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ python -m pip install --upgrade pip
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">---------- -------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="部署前的准备">部署前的准备&lt;/h2>
+&lt;p>当项目开发基本完毕，即将迁移部署测试时，就体现出虚拟环境的优势所在了。
+我们可以直接用pip的freeze功能将所在虚拟环境中所有的包及其版本写入一个文件，后续下载依赖安装包进行离线安装，或者直接在线安装都可以以该文件作为指引，方便的一比。&lt;/p>
+&lt;h3 id="导出依赖指示文件">导出依赖指示文件&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">------------------ ---------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">certifi 2022.12.7
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">charset-normalizer 2.0.12
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">idna 3.4
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">requests 2.27.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">urllib3 1.26.15
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip freeze &amp;gt; requirements.txt
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ cat requirements.txt
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">certifi&lt;/span>&lt;span class="o">==&lt;/span>2022.12.7
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">charset-normalizer&lt;span class="o">==&lt;/span>2.0.12
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">idna&lt;/span>&lt;span class="o">==&lt;/span>3.4
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">requests&lt;/span>&lt;span class="o">==&lt;/span>2.27.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">urllib3&lt;/span>&lt;span class="o">==&lt;/span>1.26.15
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="optional-根据依赖指示文件下载对应安装包到指定目录">[Optional] 根据依赖指示文件下载对应安装包到指定目录&lt;/h3>
+&lt;p>如果部署的环境无法联网，则需事先将依赖的所有安装包下载好，部署时一并带到新环境。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip download -r requirements.txt -d ./packages
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ ll packages
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">total &lt;span class="m">460&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">155255&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 certifi-2022.12.7-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">39623&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 charset_normalizer-2.0.12-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">61538&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 idna-3.4-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">63133&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 requests-2.27.1-py2.py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">140881&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 urllib3-1.26.15-py2.py3-none-any.whl
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="项目结构">项目结构&lt;/h3>
+&lt;p>至此，部署的准备阶段也基本完成，项目的结构基本定型。在省略一些非本文重点讨论的诸如.gitignore，.env或者一些部署自动化shell之后，大概能得到一个类似的项目结构。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-txt" data-lang="txt">&lt;span class="line">&lt;span class="cl">myproject
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> ├── .venv
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ └─ ...
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> ├── packages
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── certifi-2022.12.7-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── charset_normalizer-2.0.12-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── idna-3.4-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── requests-2.27.1-py2.py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ └── urllib3-1.26.15-py2.py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> ├─ app
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── __init__.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── config.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ └── main.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> ├── README.md
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> └── requirements.txt
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>可以将其打成一个zip包，方便上传服务器，比如叫 &lt;code>myproject.zip&lt;/code>&lt;/p>
+&lt;h2 id="开始部署">开始部署&lt;/h2>
+&lt;p>到了一个新的环境，首先要做到就是将项目压缩包放上去，找个位置解压好后，进到项目目录。然后以前文提到方式创建并激活虚拟环境。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ unzip myproject.zip
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> myproject
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ python -m venv .venv
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> .venv/bin/activate
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">---------- -------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="根据依赖指示文件安装依赖">根据依赖指示文件安装依赖&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install -r requirements.txt &lt;span class="c1"># 在线直接安装&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">or
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install --no-index --find-links&lt;span class="o">=&lt;/span>./packages -r ./requirements.txt &lt;span class="c1"># 离线使用安装包安装&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">------------------ ---------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">certifi 2022.12.7
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">charset-normalizer 2.0.12
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">idna 3.4
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">requests 2.27.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">urllib3 1.26.15
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="optional-部署脚本">[Optional] 部署脚本&lt;/h3>
+&lt;p>部署中的一些操作其实较为繁琐，在理解其流程后，可将部署过程中项目的环境搭建、启动停止等操作封装为shell脚本，以简化操作。&lt;/p>
+&lt;p>脚本们可单独放置在一个目录下，比如名为 &lt;code>scripts&lt;/code>。可根据实际情况编写符合自身项目的脚本，也无固定模式格式要求，主要为了简化操作。&lt;/p>
+&lt;p>本文计划将脚本分为两个，第一个为环境搭建，包括虚拟环境的构建初始化以及依赖的安装，命名为 &lt;code>init-env.sh&lt;/code>；第二个为项目服务启停相关，包括状态查询、启动、停止和重启，以项目名称命名 &lt;code>myproject.sh&lt;/code>。&lt;/p>
+&lt;p>具体代码可参考 &lt;a class="link" href="http://10.10.50.216/lixuechen/graft/tree/master/scripts" target="_blank" rel="noopener"
+>graft&lt;/a> 中的脚本编写。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ mkdir scripts
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> scripts
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ touch init-env.sh myproject.sh
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="参考">参考&lt;/h2>
+&lt;p>Python 官方的包管理平台 &lt;a class="link" href="https://pypi.org/" target="_blank" rel="noopener"
+>PyPI&lt;/a>&lt;/p></description></item><item><title>Hadoop生态圈</title><link>https://aiar.site/post/ace913866d0649cc9a8f2940214f74c7/</link><pubDate>Wed, 15 Jun 2022 16:41:06 +0800</pubDate><guid>https://aiar.site/post/ace913866d0649cc9a8f2940214f74c7/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFSg01O.png" alt="Featured image of post Hadoop生态圈" />&lt;blockquote>
+&lt;p>任何值得做的事, 做的糟糕也值得&lt;/p>
+&lt;/blockquote>
+&lt;p>原文: &lt;a class="link" href="https://www.zhihu.com/question/27974418/answer/38965760" target="_blank" rel="noopener"
+>知乎 Xiaoyu Ma 的回答&lt;/a>&lt;/p>
+&lt;h2 id="概述">概述&lt;/h2>
+&lt;p>Hadoop生态圈中各项基本都是为了处理超过单机尺寸的数据而诞生, 每项工具各有特色各有各的用处, 但互相之间又有重合.
+可以把他们比作厨房所需的各种工具, 可以用汤锅直接当作碗来吃饭喝汤, 可以用菜刀来削皮. 虽然奇怪的组合也能工作, 但未必是最佳选择.&lt;/p>
+&lt;h2 id="hdfs">HDFS&lt;/h2>
+&lt;p>大数据, 首先就要存的下海量的数据.&lt;/p>
+&lt;p>一台机器的容量不够, 那就多加几台机器, 总能存的下, 但是传统文件系统是单机的, 无法横跨不同机器. 使用多台机器存储就得同时分别管理每台机器的文件系统, 繁琐又费事.&lt;/p>
+&lt;p>所以 HDFS(Hadoop Distributed File System) 设计的本质就是为了大量数据可以横跨成百上千台机器, 仅使用一个文件系统来对其进行管理.
+极大的减轻了维护的成本, 降低了使用的难度.&lt;/p>
+&lt;h2 id="计算引擎">计算引擎&lt;/h2>
+&lt;p>存的下海量数据后, 就会开始考虑如何处理数据.&lt;/p>
+&lt;p>虽然 HDFS 可以为我们整体管理不同机器上的数据, 但是这些数据太大了. 一台机器处理成T上P的数据, 慢慢跑也许需要好几天甚至好几周. 对于很多场景, 这种效率是无法忍受的. 比如24小时热搜, 就必须在一天之内处理完毕.&lt;/p>
+&lt;p>如果使用多台机器分块处理, 就会面临如何进行工作分配, 机器挂了如何重启相应任务, 机器之间如何信息交互, 最终结果如何整体汇总等等一系列问题.&lt;/p>
+&lt;p>而计算引擎的引入正是为了解决这些问题. MapReduce 是第一代计算引擎, Tez/Spark 是第二代.&lt;/p>
+&lt;h3 id="mapreduce">MapReduce&lt;/h3>
+&lt;p>MapReduce 使用很简化的计算模型, 只有 Map 和 Reduce 两个计算过程(中间使用 Shuffle 串联). 用这个模型已经可以处理大数据领域很大一部分问题了.&lt;/p>
+&lt;p>什么是 Map, 什么是 Reduce?&lt;/p>
+&lt;p>考虑有一个存储在类似 HDFS 中的巨大文本, 现在要统计其中各个词出现的频次. 于是我们启动了一个 MapReduce 程序.&lt;/p>
+&lt;p>Map 阶段, 成百上千台机器读取这个文件的各个部分, 把各自读到的部分分别统计出词频.
+每台机器都会产生类似 &lt;code>[('hello', 12110), ('world', 12345), ...]&lt;/code> 这样的 Pair. 这些机器被称为 Mapper.&lt;/p>
+&lt;p>然后进入 Reduce 阶段, 此时会启动大量的机器将 Map 阶段产生的 Pair 进行分批统计, 最后再进行统一整合, 生成最终的词频统计结果.&lt;/p>
+&lt;h3 id="tezspark">Tez/Spark&lt;/h3>
+&lt;p>Map + Reduce 的简单模型很是暴力, 虽然好用, 但是很笨重.&lt;/p>
+&lt;p>第二代的 Tez 和 Spark 除了内存缓存之类的新功能之外, 本质上是让 Map/Reduce 模型更加的通用化, Map 和 Reduce 之间的界限更加模糊, 数据交换变得更为灵活, 进一步减少了磁盘的读写, 以便于描述更加复杂的算法, 取得更高的吞吐量.&lt;/p>
+&lt;h2 id="语言层抽象pighive">语言层抽象(Pig/Hive)&lt;/h2>
+&lt;p>有了 MapReduce, Tez 和 Spark 之后, 程序员们发现 MapReduce 的程序写起来真麻烦, 他们希望简化这个过程.&lt;/p>
+&lt;p>好比有了汇编语言, 虽然几乎什么都能干了, 但还是觉得繁琐. 所以就希望有个更高级更抽象的语言层, 来描述算法和数据处理流程.&lt;/p>
+&lt;p>于是就有了 Pig 和 Hive. Pig 是以接近脚本的方式来描述 MapReduce, 而 Hive 则用的是 SQL.&lt;/p>
+&lt;p>它们把脚本和SQL语言翻译成 MapReduce 程序, 丢给计算引擎去计算, 而用户就可以从繁杂的 MapReduce 程序中解放出来, 用更简单更直观的语言去写程序.&lt;/p>
+&lt;p>当然, 针对第二代的计算引擎, 也有类似的 Hive on Tez, Hive on Spark 以及 SparkSQL 等等.&lt;/p>
+&lt;h2 id="承上启下">承上启下&lt;/h2>
+&lt;p>以上介绍的基本就是一个数据仓库的基本架构了, 最底层 HDFS 用以存储数据, 中层 MapReduce/Tez/Spark 构成数据计算引擎, 上层 Pig/Hive 提供给用户更简洁的交互接口. 这样基本就解决了中低速数据处理的需求.&lt;/p>
+&lt;p>那如果想要更快速呢?&lt;/p>
+&lt;p>像微博热搜这种产品, 用户需要的是一个不断变化的榜单, 更新延迟在一分钟之内, 上面的手段就无法胜任了. 于是一种新的计算模式被开发出来, 那就是流计算.&lt;/p>
+&lt;h2 id="流计算">流计算&lt;/h2>
+&lt;p>Storm 是最流行的流计算平台, 流计算的思路是, 如果要达到更实时的更新, 我为何不在数据流进来的时候就处理了?&lt;/p>
+&lt;p>比如还是词频统计, 数据流是一个一个的词, 就让他们一边流过, 我一边就开始统计了.&lt;/p>
+&lt;p>流计算很强大, 基本无延迟. 但他的短处是, 不灵活. 你想要统计的东西必须预先知道, 毕竟数据流过了就没了, 没算的东西也就没法补算了. 因此, 它是个很好的东西, 但是无法替代数据仓库和批处理系统.&lt;/p>
+&lt;h2 id="kv-store">KV Store&lt;/h2>
+&lt;p>键值存储这个模块比较独立, 有非常非常多的实现, 比如 HBase, MongoDB 等等等等.&lt;/p>
+&lt;p>它的作用就是可以非常快速的通过 Key 来找到对应的 Value. 比如用身份证号取到身份数据. 当然这个 MapReduce 来实现, 但是很可能要扫描整个数据集. 而 KV Store 专用来处理这个操作, 所有存和取的操作都专门为此优化了, 从几个P的数据中查找一个身份证号, 可能只需要零点几秒.&lt;/p>
+&lt;p>KV Store 的基本理念是, 基本无法处理复杂计算, 大多没法 JOIN, 也许没法聚合, 没有强一致性保护, 但就是快, 极快.&lt;/p>
+&lt;h2 id="其他">其他&lt;/h2>
+&lt;p>除了以上这些, 还有些更为特制的系统/组件. 比如 Mahout 是分布式机器学习库, Protobuf 是数据交换的编码和库, Zookeeper 是高一致性的分布存取协同系统, 等等.&lt;/p>
+&lt;h2 id="调度系统">调度系统&lt;/h2>
+&lt;p>有了这么多乱七八糟的工具, 都在一个集群上运转, 大家都需要相互配合有序工作, 所以调度组件就十分重要. 现在最流行的就是 Yarn.&lt;/p></description></item><item><title>Arch+Gnome 触摸板功能忽然不全了怎么办</title><link>https://aiar.site/post/e93e60bf2eca473da47d60de30ebcdba/</link><pubDate>Mon, 21 Feb 2022 17:22:12 +0800</pubDate><guid>https://aiar.site/post/e93e60bf2eca473da47d60de30ebcdba/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFSgY7R.jpg" alt="Featured image of post Arch+Gnome 触摸板功能忽然不全了怎么办" />&lt;blockquote>
+&lt;p>万物皆有裂痕，那是光照进来的方向。&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="问题描述">问题描述&lt;/h2>
+&lt;p>某一次重启之后, 触摸板无法 tap to click, 无法触发三指四指的手势事件, 一指两指滑动功能还可以使用。&lt;/p>
+&lt;p>gnome-control-center touchpad 设置消失, gnome-tweek 设置 touchpad 无效, dconf-editor 设置 touchpad 无效。&lt;/p>
+&lt;p>重启之前的操作可能与触摸板相关的有:&lt;/p>
+&lt;ol>
+&lt;li>安装了 todesk 远程控制软件，可能会重载触摸板的配置&lt;/li>
+&lt;li>sudo pacman -Syu&lt;/li>
+&lt;/ol>
+&lt;p>目前只想到这两个, 不过确实很久没有关机了, 大概有一周左右, 期间滚动升级了很多次, 不过都没有重启或关机&lt;/p>
+&lt;h2 id="猜测原因">猜测原因&lt;/h2>
+&lt;p>滚动更新可能触摸板依赖默认安装了 synatics 导致和 gnome 不兼容, &lt;a class="link" href="https://wiki.archlinux.org/title/GNOME#Mouse_and_touchpad" target="_blank" rel="noopener"
+>Arch Wiki&lt;/a> 里这样写着:&lt;/p>
+&lt;blockquote>
+&lt;p>Note: The synaptics driver is not supported by GNOME. Instead, you should use libinput. See this &lt;a class="link" href="https://bugzilla.gnome.org/show_bug.cgi?id=764257#c12" target="_blank" rel="noopener"
+>bug report&lt;/a>.&lt;/p>
+&lt;/blockquote>
+&lt;p>或者也可能是由于 &lt;a class="link" href="https://www.todesk.com/linux.html" target="_blank" rel="noopener"
+>todesk&lt;/a> 重载触摸板配置啥的我也不太清楚&lt;/p>
+&lt;h2 id="解决方案">解决方案&lt;/h2>
+&lt;h3 id="前置条件">前置条件&lt;/h3>
+&lt;ol>
+&lt;li>默认系统已经安装类似 yay 的 AUR 包管理&lt;/li>
+&lt;li>默认桌面系统是Gnome, 且已可以安装插件&lt;/li>
+&lt;/ol>
+&lt;h3 id="具体操作">具体操作&lt;/h3>
+&lt;ol>
+&lt;li>remove xf86-input-synaptics package&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">$ sudo pacman -R xf86-input-synaptics
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="2">
+&lt;li>install xf86-input-libinput&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">$ sudo pacman -Syu xf86-input-libinput
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="3">
+&lt;li>reboot&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">$ reboot
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>重启之后大概是可以触发 touch to click 了, 如果三指手势仍无法触发, 则进行下面几步&lt;/p>
+&lt;ol start="4">
+&lt;li>install touchegg&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">$ yay -Syu touchegg
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="5">
+&lt;li>enable touchegg&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">$ sudo systemctl enable --now touchegg
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="6">
+&lt;li>
+&lt;p>install gnome extension x11-gestures&lt;br>
+安装该插件即可&lt;br>
+&lt;a class="link" href="https://extensions.gnome.org/extension/4033/x11-gestures/" target="_blank" rel="noopener"
+>https://extensions.gnome.org/extension/4033/x11-gestures/&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li>
+&lt;p>一般来说装好插件就三指手势已经可以触发了, 不行的话可以重启试试看&lt;/p>
+&lt;/li>
+&lt;/ol>
+&lt;h2 id="参考文档">参考文档&lt;/h2>
+&lt;p>&lt;a class="link" href="https://bbs.archlinux.org/viewtopic.php?pid=1638596#p1638596" target="_blank" rel="noopener"
+>https://bbs.archlinux.org/viewtopic.php?pid=1638596#p1638596&lt;/a>&lt;br>
+&lt;a class="link" href="https://itsfoss.com/three-finger-swipe-gnome/" target="_blank" rel="noopener"
+>https://itsfoss.com/three-finger-swipe-gnome/&lt;/a>&lt;br>
+&lt;a class="link" href="https://wiki.archlinux.org/title/GNOME#Mouse_and_touchpad" target="_blank" rel="noopener"
+>https://wiki.archlinux.org/title/GNOME#Mouse_and_touchpad&lt;/a>&lt;br>
+&lt;a class="link" href="https://bugzilla.gnome.org/show_bug.cgi?id=764257#c12" target="_blank" rel="noopener"
+>https://bugzilla.gnome.org/show_bug.cgi?id=764257#c12&lt;/a>&lt;/p></description></item></channel></rss>

@@ -1,0 +1,816 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Python on Aiar's Site</title><link>https://aiar.site/tags/python/</link><description>Recent content in Python on Aiar's Site</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Tue, 27 Feb 2024 10:16:37 +0800</lastBuildDate><atom:link href="https://aiar.site/tags/python/index.xml" rel="self" type="application/rss+xml"/><item><title>[译] Python全局解释器锁(GIL)是什么</title><link>https://aiar.site/post/37e820d83e914ea38386ad1aa323f3c5/</link><pubDate>Tue, 27 Feb 2024 10:16:37 +0800</pubDate><guid>https://aiar.site/post/37e820d83e914ea38386ad1aa323f3c5/</guid><description>&lt;img src="https://s11.ax1x.com/2024/02/28/pFdbDPK.jpg" alt="Featured image of post [译] Python全局解释器锁(GIL)是什么" />&lt;blockquote>
+&lt;p>原文标题：What Is the Python Global Interpreter Lock (GIL)?&lt;br>
+原文作者： Abhinav Ajitsaria&lt;br>
+原文链接：&lt;a class="link" href="https://realpython.com/python-gil/" target="_blank" rel="noopener"
+>https://realpython.com/python-gil/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;p>简单来说，Python 的全局解释器锁(GIL)是一种互斥元(或锁)，同一时刻它只允许一个线程持有对 Python 解释器的控制权。&lt;/p>
+&lt;p>这意味着，在任意一个时间点都只能有一个线程处于执行状态。GIL 带来的影响对于只执行单线程程序的开发者几乎不可见，但是它会成为计算密集型或多线程代码的性能瓶颈。&lt;/p>
+&lt;p>由于即使在拥有多个 CPU 的多线程架构中，GIL 也只允许同一时刻仅有一个线程可执行，因此 GIL 已经臭名昭著了。&lt;/p>
+&lt;p>&lt;strong>在这篇文章中，你将会学习到GIL是如何影响Python程序性能的，以及如何缓解这些影响&lt;/strong>&lt;/p>
+&lt;h2 id="gil-解决了-python-中-的什么问题">GIL 解决了 Python 中 的什么问题&lt;/h2>
+&lt;p>Python 使用引用计数进行内存管理，这意味着每一个在 Python 中创建的对象都有一个引用数变量，用于保持追踪有多少指向该变量的引用。当这个数量变为零时，该变量占用的内存将被释放。（译者注：详见&lt;a class="link" href="https://aiar.site/post/52397c9cfe524c17a37e15b83a022f94/" target="_blank" rel="noopener"
+>CPython 的垃圾回收&lt;/a>）&lt;/p>
+&lt;p>来看一段代码演示下引用计数是如何工作的：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">sys&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">a&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">[]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">b&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">a&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">3&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在上面的例子中，空列表对象 &lt;code>[]&lt;/code> 的引用计数是 3。该对象被 &lt;code>a&lt;/code>、&lt;code>b&lt;/code> 以及传入 &lt;code>sys.getrefcount()&lt;/code> 方法的参数所引用。&lt;/p>
+&lt;p>回到 GIL：&lt;/p>
+&lt;p>问题在于，这个引用计数变量需要避免竞争局面的产生，比如两个线程同时增加或者减少这个值。这种局面一旦出现，轻则造成一部分内存永远不会被释放，重则导致一些还拥有引用的对象的内存被释放。而这可能会导致 Python 程序崩溃，或者其他奇奇怪怪的 bug。&lt;/p>
+&lt;p>比较容易想到的解决方案是，为所有跨线程共享的数据结构加锁，这样可以通过保证数据结构修改的一致性，进而保证引用计数变量的安全性。&lt;/p>
+&lt;p>但是，为每一个对象或每一组对象加锁意味着会有多个锁同时存在，这将造成另外一个问题——死锁(死锁只会发生在同时存在超过一个锁的情况下)。从另一个角度来看，频繁申请和释放锁资源也会降低程序性能。&lt;/p>
+&lt;p>GIL 是添加在解释器自身上的一个简单的锁，它有这样一个规则：执行任何字节码都需要申请解释器锁。这防止了死锁(因为只有一个锁存在)，也不会对性能造成过多的影响。但是它实际上造成任何计算密集型 Python 程序只能是单线程。&lt;/p>
+&lt;p>尽管 GIL 也被其他语言的解释器使用，比如 Ruby，但它并不是这个问题唯一的解决方案。一些语言通过使用引用计数之外的方法(如垃圾回收)来避免 GIL 对线程安全内存管理的依赖。&lt;/p>
+&lt;p>另一方面，这也意味着这些语言必须通过添加其他性能提升功能（如JIT编辑器）来弥补 GIL 单线程性能优势的损失。&lt;/p>
+&lt;h2 id="为什么-gil-能被选为解决方案">为什么 GIL 能被选为解决方案&lt;/h2>
+&lt;p>那么，到底为什么这样一个看起来如此不堪的解决方案会被用在 Python 里呢？这是 Python 开发人员的一记昏招么？用 &lt;a class="link" href="https://youtu.be/KVKufdTphKs?t=12m11s" target="_blank" rel="noopener"
+>Larry Hastings 的话&lt;/a>(译者注：Python的一位核心开发人员和长期使用者)来说，GIL 的设计决策是 Python 在今天如此受欢迎的原因之一。&lt;/p>
+&lt;p>在操作系统还没有线程这个概念时，Python 就已经诞生了。为了让开发更加的快捷，Python 以易用作为开发理念，这也使得越来越多的开发者开始使用 Python。&lt;/p>
+&lt;p>很多扩展都是针对已有的 C 语言库来编写的，这些库都是 Python 所必需的。为了确保更改的一致性，这些 C 扩展需要一个线程安全的内存管理机制，而这正是 GIL 可以提供的。&lt;/p>
+&lt;p>GIL 很容易实现，也很容易添加到 Python 中。由于只需要管理一个锁，它也提升了单线程的程序的性能。&lt;/p>
+&lt;p>非线程安全的 C 库变得更容易集成，而 Python 也因为这些 C 扩展，变得更容易被不同社区采用。&lt;/p>
+&lt;p>如你所见，GIL 是 CPython 的开发人员在 Python 早期面临这个难题时的实用性解决方案。&lt;/p>
+&lt;h2 id="对多线程的-python-程序的影响">对多线程的 Python 程序的影响&lt;/h2>
+&lt;p>对于一个典型的 Python 程序甚至任何一个相关的计算机程序来说，计算密集型和 I/O 密集型在性能要求上是有区别的。&lt;/p>
+&lt;p>计算密集型程序倾向于将 CPU 的运算能力运用到极致，像多维矩阵数学计算、搜索、图像处理等等都属于计算密集型程序。&lt;/p>
+&lt;p>I/O 密集型程序是那些需要花费时间等待输入输出的程序，这些输入输出可能来自于用户、文件、数据库、网络等等。I/O 密集型程序有时不得不消耗大量时间用于等待，直到它们从源端取到所需。这是由于在源端输入输出准备好之前，它可能自己也需要做一些处理，比如，用户在思考到底要输入什么指令，或者数据库在查询时运行自己的进程。&lt;/p>
+&lt;p>来看一个简单的计算密集型程序，它实现了一个记录倒数时长的功能：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># single_threaded.py&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">time&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">COUNT&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">50000000&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">countdown&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">n&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">while&lt;/span> &lt;span class="n">n&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">n&lt;/span> &lt;span class="o">-=&lt;/span> &lt;span class="mi">1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">start&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">countdown&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">end&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s1">&amp;#39;Time taken in seconds -&amp;#39;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">end&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="n">start&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在我这台 4 核的机器上执行它会有这样的输出：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ python single_threaded.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Time taken in seconds - 6.20024037361145
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>现在，简单调整下代码，使用两个线程分开执行一半的倒数任务：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># multi_threaded.py&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">time&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">from&lt;/span> &lt;span class="nn">threading&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="n">Thread&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">COUNT&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">50000000&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">countdown&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">n&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">while&lt;/span> &lt;span class="n">n&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">n&lt;/span> &lt;span class="o">-=&lt;/span> &lt;span class="mi">1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Thread&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">target&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="n">countdown&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">args&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="o">//&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Thread&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">target&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="n">countdown&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">args&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="o">//&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">start&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t1&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">start&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t2&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">start&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t1&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">join&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t2&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">join&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">end&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s1">&amp;#39;Time taken in seconds -&amp;#39;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">end&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="n">start&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>然后再次执行：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ python multi_threaded.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Time taken in seconds - 6.924342632293701
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如你所见，两个版本的程序基本花费了相同的时间(甚至多线程的还更长些)。在多线程版本中，GIL 阻止了计算密集线程的并行执行。&lt;/p>
+&lt;p>GIL 对于 I/O 密集型的多线程程序在性能方面影响甚微，因为锁在等待 I/O 时是共享的。&lt;/p>
+&lt;p>但是那些纯粹的计算密集型程序，比如一个使用多线程将图片分为几部分的程序，不仅会在锁的影响下变成单线程，而且就像上面的例子那样，你还会看到相对于单线程程序，多线程的执行时间还增加了。&lt;/p>
+&lt;p>这种时间的增加，就是线程锁在获取和释放时的性能开销所致。&lt;/p>
+&lt;h2 id="为什么-gil-还没有被移除">为什么 GIL 还没有被移除&lt;/h2>
+&lt;p>Python 的开发团队收到过数不胜数的关于 GIL 的抱怨，但是像 Python 这样流行的语言，如果做出像移除 GIL 这样重大的改变，势必会造成一系列向下兼容的问题，而这是 Python 团队无法接受的。&lt;/p>
+&lt;p>退一万步说，GIL 完全可以被移除，之前开发人员和研究人员也曾尝试过很多次，但是所有的尝试都破坏了现有的 C 扩展，因为这些扩展都严重依赖 GIL 提供的解决方案。&lt;/p>
+&lt;p>当然，是有一些其他的 GIL 替代方案，但是它们有些会降低单线程应用和 I/O 密集型多线程程序
+的性能，同时这些程序也会变得异常复杂。毕竟，你也不想在 Python 新版本出来后导致已有的程序效率变慢吧？&lt;/p>
+&lt;p>Python 的创始人、BDFL，Guido van Rossum，于 2007 年九月在社区发布的&lt;a class="link" href="https://www.artima.com/weblogs/viewpost.jsp?thread=214235" target="_blank" rel="noopener"
+>《移除GIL并不容易》&lt;/a>一文中做出了一些回应：&lt;/p>
+&lt;blockquote>
+&lt;p>“I’d welcome a set of patches into Py3k only if the performance for a single-threaded program (and for a multi-threaded but I/O-bound program) does not decrease”
+“只要单线程程序(以及多线程的 I/O 密集型程序)的效率不会下降，我是非常欢迎为 Py3k 附加一些补丁的”&lt;/p>
+&lt;/blockquote>
+&lt;p>但自那以后，任何一次尝试都没有满足这个条件。&lt;/p>
+&lt;h2 id="为什么-python-3-也没有移除它">为什么 Python 3 也没有移除它&lt;/h2>
+&lt;p>Python 3 确实有机会从头开始开发许多特性，但在这个过程中也破坏了一些现有的 C 扩展，这些扩展需要更新和移植才能与 Python 3 一起工作。这也是在 Python 3 的早期版本社区采用较慢的主要原因。&lt;/p>
+&lt;p>但是为啥 GIL 还是没有被移除呢？&lt;/p>
+&lt;p>移除 GIL 就会导致新的 Python 3 版本在单线程程序的性能方面相比于 Python 2 竟然会更慢，可想而知结果会是啥。我们确实无法否认 GIL 在单线程程序性能上的优势，因此结果就是 Python 3 中的 GIL 仍然存在。&lt;/p>
+&lt;p>但是，Python 3 也确实对现有的 GIL 进行了重大的改进——&lt;/p>
+&lt;p>我们之前讨论了 GIL 对于纯计算密集型或纯 I/O 密集型多线程程序的影响，但是，对于那些一部分线程计算密集，另一部分线程 I/O 密集的程序 GIL 带来的影响又会是怎样呢？&lt;/p>
+&lt;p>在这样的程序中，Python 的 GIL 会饿死 I/O 密集型的线程，不给它们从计算密集型线程这种获取 GIL 的机会。&lt;/p>
+&lt;p>首先我们需要知道 Python 有这样一个内置的机制，当某线程连续使用 GIL 到达一个 &lt;strong>固定的时长&lt;/strong> 后，机制会强制让线程释放 GIL，但如果没有别的线程申请 GIL，则该线程就会继续使用 GIL。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">sys&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="c1"># The interval is set to 100 instructions:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getcheckinterval&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">100&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>但这个机制的问题在于，对于大部分的计算密集型线程而言，它们会抢在别的线程能申请之前重复申请 GIL。这项研究由 David Beazley 整理，可以在 &lt;a class="link" href="https://www.dabeaz.com/blog/2010/01/python-gil-visualized.html" target="_blank" rel="noopener"
+>这里&lt;/a> 找到可视化的成果。&lt;/p>
+&lt;p>这个问题于 2009 年由 Antoine Pitrou 在 Python 3.2 中修复，他添加了一种机制用来监测其他线程请求获取 GIL 但被丢弃的次数，并且在其他线程有机会运行之前，不再允许当前线程重复获取 GIL。&lt;/p>
+&lt;h2 id="如何来处理-python-的-gil">如何来处理 Python 的 GIL&lt;/h2>
+&lt;p>如果 GIL 正在给你添堵，可以尝试用这些方法解决：&lt;/p>
+&lt;p>&lt;strong>多进程 vs 多线程：&lt;/strong> 最受欢迎的方式是使用多进程代替多线程。每个 Python 进程都有它自己的解释器和内存空间，所以 GIL 也就不是问题了。Python内置的 &lt;a class="link" href="https://docs.python.org/3/library/multiprocessing.html" target="_blank" rel="noopener"
+>multiprocessing&lt;/a> 模块(译者注：原始链接是Python2的，这里的链接换成了最新的Python版本的)可以帮我们很容易的创建进程，就像这样：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="kn">from&lt;/span> &lt;span class="nn">multiprocessing&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="n">Pool&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">time&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">COUNT&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">50000000&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">countdown&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">n&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">while&lt;/span> &lt;span class="n">n&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">n&lt;/span> &lt;span class="o">-=&lt;/span> &lt;span class="mi">1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">if&lt;/span> &lt;span class="vm">__name__&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="s1">&amp;#39;__main__&amp;#39;&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">pool&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Pool&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">processes&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">start&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">r1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">pool&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">apply_async&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">countdown&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="o">//&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">])&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">r2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">pool&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">apply_async&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">countdown&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="o">//&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">])&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">pool&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">close&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">pool&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">join&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">end&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s1">&amp;#39;Time taken in seconds -&amp;#39;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">end&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="n">start&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在我的机器上执行会有这样的输出：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ python multiprocess.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Time taken in seconds - 4.060242414474487
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>相较于多线程版本，这样能有一个不错的性能提升，还可以吧~&lt;/p>
+&lt;p>我们看到，时间花费并没有下降为原本的一半，这是因为进程管理也有它自己的花费。多进程比多线程更重，所以要考虑清楚，这可能会成为新的瓶颈。&lt;/p>
+&lt;p>&lt;strong>使用其他解释器：&lt;/strong> Python 有很多解释器的实现版本，最受欢迎的有 CPython、Jython、IronPython 以及 PyPy，它们分别是由 C、Java、C# 和 Python 实现的版本。GIL 仅存在于最初的实现版本 CPython 中。如果你的程序以及它依赖的一些库对于一种或多种解释器都适用，那么你也可以尝试使用别的解释器。&lt;/p>
+&lt;p>&lt;strong>敬候佳音：&lt;/strong> 尽管有很多 Python 的使用者在利用 GIL 在单线程程序上的性能优势，但是多线程开发人员也不用太过发愁，因为 Python 社区中一些最聪明的人正致力于将 GIL 从 CPython 中移除，比如 &lt;a class="link" href="https://github.com/larryhastings/gilectomy" target="_blank" rel="noopener"
+>Gilectomy&lt;/a> 这个尝试。(译者注：可惜这个尝试已经有8年没有更新了，最后截至到Python3.6版本)&lt;/p>
+&lt;p>Python 的 GIL 经常被看作是一个神秘而又困难的主题，但作为 Pythonista，通常你只会在写 C 扩展或者计算密集型程序时，才会被它影响。&lt;/p>
+&lt;p>因此，本文为你介绍了 GIL 是什么以及在程序中如何处理它。如果你想继续了解 GIL 底层工作原理，建议观看 David Beazley 的&lt;a class="link" href="https://youtu.be/Obt-vMVdM8s" target="_blank" rel="noopener"
+>《理解 Python GIL》&lt;/a>这场演讲。&lt;/p></description></item><item><title>[译] CPython垃圾回收器的设计</title><link>https://aiar.site/post/52397c9cfe524c17a37e15b83a022f94/</link><pubDate>Fri, 12 Jan 2024 14:19:45 +0800</pubDate><guid>https://aiar.site/post/52397c9cfe524c17a37e15b83a022f94/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/16/pFFyS10.png" alt="Featured image of post [译] CPython垃圾回收器的设计" />&lt;blockquote>
+&lt;p>原文标题：Garbage collector design&lt;br>
+原文作者：Pablo Galindo Salgado&lt;br>
+原文链接：&lt;a class="link" href="https://devguide.python.org/internals/garbage-collector/" target="_blank" rel="noopener"
+>https://devguide.python.org/internals/garbage-collector/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="摘要">摘要&lt;/h2>
+&lt;p>引用计数（reference counting）是 CPython 中最主要的垃圾回收算法。它的主要思想是，CPython 会统计每个对象有多少不同的“地方”对该对象有引用。这个“地方”可能是其他对象，可能是全局（或静态）的 C 变量，也可能一些 C 方法中的本地变量。当一个对象的引用数降为 &lt;code>0&lt;/code> 时，这个对象就会被回收。如果其中包含一些对其他对象的引用，那么这些“其他对象”的引用数也将减少，若恰好导致某些对象引用数也降为0，那么它们也会被依次回收。可以使用 &lt;code>sys.getrefcount&lt;/code> 方法检查对象的引用数，需要注意的一点是，使用这个方法返回的值总会比 &lt;code>1&lt;/code> 大，因为在调用这个方法时该方法对于该对象产生一个引用：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">object&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">2&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">y&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">x&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">3&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">y&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">2&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>引用计数方案的主要问题在于，它无法处理循环引用。考虑下面的代码：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">container&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">[]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">container&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">append&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">container&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">container&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">3&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">container&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在这个例子中，&lt;code>container&lt;/code> 存着一个指向自己的引用，因此，即使我们移除了对它的引用（变量“container”），它的引用数也不会变成零，因为在它内部仍有一个引用。因此，仅靠简单的引用计数它将永远无法被清除。正因如此，当一些对象变得无法到达（unreachable）时，我们需要一些额外的机制来清除这些对象间的循环引用。这就是循环式垃圾回收器，通常也叫垃圾回收器（GC）。当然，引用计数也是垃圾回收的一种实现形式。&lt;/p>
+&lt;h2 id="内存布局和对象结构">内存布局和对象结构&lt;/h2>
+&lt;p>通常情况下，支持 Python 对象的 C 结构大致如此：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-text" data-lang="text">&lt;span class="line">&lt;span class="cl">object -----&amp;gt; +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ \
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | ob_refcnt | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ | PyObject_HEAD
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | *ob_type | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ /
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | ... |
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>为了支持 GC，对象的内存布局有了一些更改，它将在通用布局之前存储一些额外的信息：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-text" data-lang="text">&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ \
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | *_gc_next | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ | PyGC_Head
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | *_gc_prev | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">object -----&amp;gt; +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ /
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | ob_refcnt | \
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ | PyObject_HEAD
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | *ob_type | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ /
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | ... |
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在这种方式下，这个 C 结构既可以被当作一个普通 Python 对象，也可以在垃圾回收机制触发时，通过对该结构进行简单的类型转换，来访问其前一个内存域来获取垃圾回收相关的额外信息：&lt;br>
+&lt;code>((PyGC_Head *)(the_object)-1)&lt;/code>。&lt;/p>
+&lt;p>正如后文 &lt;a class="link" href="#%e4%bc%98%e5%8c%96%e5%a4%8d%e7%94%a8%e5%9f%9f%e4%bb%a5%e8%8a%82%e7%9c%81%e5%86%85%e5%ad%98" >优化：复用域以节省内存&lt;/a> 部分中解释的那样，这两个附加的内存域通常用来维持一些双向链表，这些链表中存储的对象即是 GC 跟踪着的所有对象（这些链表就是 GC 的各个 &lt;code>代&lt;/code>，更多关于详见本文 &lt;a class="link" href="#%e4%bc%98%e5%8c%96%e4%bb%a3" >优化：代&lt;/a> 部分）。当然，在 GC 做内存优化时，也不是总会需要完整的双向链表，这时没用到的部分就可以被重用来实现其他目的。&lt;/p>
+&lt;p>使用双向链表，是因为它能高效地支持那些 GC 使用最频繁的操作。通常情况下，被 GC 跟踪的对象们会被根据从垃圾回收机制中存活下来的频率收集为多个不相交的集合，收集成的每个集合都被存入独立的双向链表，一个集合被称为一“代”（generation）。在收集期间，每一个“代”又被进一步分为可到达（reachable）和不可到达（unreachable）。双向链表支持内部对象的移动、新增、彻底移除（被 GC 跟踪的对象在 GC 不运行时通常被引用计数回收）以及链表间的合并，所有的这些操作仅仅只需要更新一下几个指针就能完成。需要主义的是，双向链表还支持在其中增加或删除元素时对分区进行迭代，这也是 GC 在运行时经常需要做的。&lt;/p>
+&lt;p>GC 提供特定 API 以便对特定对象进行分配、解除分配、初始化、跟踪和解除跟踪。详见 &lt;a class="link" href="https://docs.python.org/3.8/c-api/gcsupport.html" target="_blank" rel="noopener"
+>Garbage Collector C API documentation&lt;/a> 这篇文档。&lt;/p>
+&lt;p>除了上述的对象结构之外，用于支持 GC 对象的 type 对象必须在其 &lt;code>tp_flags&lt;/code> 属性中包含 &lt;code>Py_TPFLAGS_HAVE_GC&lt;/code>，并提供 &lt;code>tp_traverse&lt;/code> 函数的实现。除非可以证明对象不能仅与自身类型的对象形成引用循环，或者除非类型是不可变的，否则还需要提供 &lt;code>tp_clear&lt;/code> 函数的实现。&lt;/p>
+&lt;h2 id="识别循环引用">识别循环引用&lt;/h2>
+&lt;p>CPython 中用来识别引用循环的算法在 &lt;code>gc&lt;/code> 模块中有实现。垃圾回收器 &lt;strong>仅专注于&lt;/strong> 清理容器对象（可以容纳一个或多个对象引用的对象）。它们可以是数组、字典、列表、自定义类的实例和拓展模块中的类等。可能有人会觉得循环并不常见，但事实是许多解释器用到的内部引用把循环建的到处都是。比较经典的例子有：&lt;/p>
+&lt;ul>
+&lt;li>Exception 包含 traceback 对象，而 traceback 包含了一个 Exception 自身也在其中的内容列表&lt;/li>
+&lt;li>模块级函数引用了该模块的字典用来解析全局变量，而这个字典又包含了该模块级函数的条目&lt;/li>
+&lt;li>实例有对它所属类的引用，所属类又有对其所在模块的引用。同时所在模块又有对它内部所有事物（也可能有其他import进来的模块）的引用，而这会追溯回最开始的那个实例&lt;/li>
+&lt;li>当表示类似图这样的数据结构时，它的内部节点能链接到自身是再正常不过的一件事&lt;/li>
+&lt;/ul>
+&lt;p>当对象变得不可到达时，要想正确的处理这些对象，首先需要做的就是识别出它们。在循环识别函数的内部有两个双向链表，其中一个包含了所有可以扫描到的对象，另一个包含所有“暂定为”不可到达的对象。&lt;/p>
+&lt;p>为了更好的理解这个算法，我们以一个循环链表为例，它有一个有变量 &lt;code>A&lt;/code> 引用的链接，还有一个完全不可到达的自引用对象：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">gc&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">class&lt;/span> &lt;span class="nc">Link&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">def&lt;/span> &lt;span class="fm">__init__&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="bp">self&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">next_link&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="kc">None&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="bp">self&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">next_link&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">next_link&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_3&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Link&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Link&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">link_3&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Link&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">link_2&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_3&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">next_link&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">link_1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">A&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">link_1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">link_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">link_2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">link_3&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_4&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Link&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_4&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">next_link&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">link_4&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">link_4&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Collect the unreachable Link object (and its .__dict__ dict).&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">collect&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">2&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>GC 启动时，会将它所有想扫描的容器对象放入第一个链表，目的是移动所有无法到达对象。由于大部分对象都是可到达的，所以移动不可到达对象显然更加高效，因为这样能更新更少的指针以达到相同的目的。&lt;/p>
+&lt;p>每当算法启动时，每个支持垃圾回收的对象都会初始化一个额外的引用计数域，用来存放它被引用的数量（图中的 &lt;code>gc_ref&lt;/code> 字段）。这是因为算法需要通过修改引用计数来进行计算，又保证了解释器不用调整对象实际的引用计数。&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-1-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-1-new-page"
+>&lt;/p>
+&lt;p>然后，GC 会遍历第一个列表中的所有容器，并将容器引用的任何其他对象的 &lt;code>gc_ref&lt;/code> 字段数值减一。可以利用容器类中的 &lt;code>tp_traverse&lt;/code> 槽（由 C API 实现或者由超类继承）来获取每个容器引用的对象。在扫描完所有对象之后，只有那些引用来自“要扫描的对象”列表之外的对象，其 &lt;code>gc_ref&lt;/code> 字段值才会 &lt;code>&amp;gt; 0&lt;/code>&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-2-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-2-new-page"
+>&lt;/p>
+&lt;p>需要注意的是，即便某对象的 &lt;code>gc_ref == 0&lt;/code>，也不一定意味着它是不可到达的。这是因为可能会有外部的另一个可访问的对象（&lt;code>gc_ref &amp;gt; 0&lt;/code>）对它仍有引用。比如，在我们例子中的 &lt;code>link_2&lt;/code> 对象在扫描结束后 &lt;code>gc_ref == 0&lt;/code>，但是它仍然在被 &lt;code>link_1&lt;/code> 引用，而 &lt;code>link_1&lt;/code> 是一个外部可到达的对象。为了获得一个由真正无法到达对象组成的集合，垃圾回收器会使用 &lt;code>tp_traverse&lt;/code> 槽再次扫描容器对象，但这次会使用不同的 traverse 方法，将 &lt;code>gc_ref == 0&lt;/code> 的对象标记为“暂时不可到达”，然后再将它们移动到暂时不可到达列表中。下图描绘了这样一个状态，GC 已经处理了 &lt;code>link_3&lt;/code> 和 &lt;code>link_4&lt;/code> 对象，但还没有处理 &lt;code>link_1&lt;/code> 和 &lt;code>link_2&lt;/code> 对象。&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-3-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-3-new-page"
+>&lt;/p>
+&lt;p>然后，GC 会接着扫描 &lt;code>link_1&lt;/code> 对象，由于 &lt;code>gc_ref == 1&lt;/code> 代表它一定可到达（并且它已经在即将成为可访问列表的列表中了），所以 GC 不会做任何事。&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-4-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-4-new-page"
+>&lt;/p>
+&lt;p>当 GC 遇到一个可到达对象（&lt;code>gc_ref &amp;gt; 0&lt;/code>）时，它将使用 &lt;code>tp_traverse&lt;/code> 槽遍历该对象的引用，获取该对象所有可到达的对象，再将它们移动到可到达对象列表的末尾（本例中也就是它们初始的位置），最后将它们的 &lt;code>gc_ref&lt;/code> 字段值设置为 &lt;code>1&lt;/code>。这就是下图中 &lt;code>link_2&lt;/code> 和 &lt;code>link_3&lt;/code> 的情况，因为它们可以通过 &lt;code>link_1&lt;/code> 到达。从上一张图的状态到检查完 &lt;code>link_1&lt;/code> 引用的对象之后，GC 知道了 &lt;code>link_3&lt;/code> 是可到达的，因此 &lt;code>link_3&lt;/code> 被移动回了初始的列表，并且它的 &lt;code>gc_ref&lt;/code> 值也被设置为了 &lt;code>1&lt;/code>，以便当 GC 再次访问它时能知道它是可到达的。为了避免访问一个对象两遍的问题，GC 会将所有它已经访问过一次的对象做出标记（通过取消 &lt;code>PREV_MARK_COLLECTING&lt;/code> 标志），这样，如果一个已经被处理过的对象也被其他对象引用，GC 就不会对它进行二次处理。&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-5-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-5-new-page"
+>&lt;/p>
+&lt;p>需要注意的是，如果一个对象被标记为“暂时不可达”，后来又被移回可达列表，那么垃圾收集器将再次访问该对象，因为现在该对象的所有引用也都需要处理了。这个过程实际上是对对象图的广度优先搜索。一旦扫描了所有对象，GC 就知道暂定不可达列表中的所有容器对象确实不可达，因此它们就可以被垃圾回收掉了。&lt;/p>
+&lt;p>从实际意义上讲，需要注意的是，这些都是不需要递归的，也不会以任何其他方式需要额外线性增长的内存，不管是对象数量、指针数量或指针链长度都不会影响。除了满足 C 需求的 O(1) 存储空间外，对象本身包含了 GC 算法所需的所有存储空间。&lt;/p>
+&lt;h3 id="为什么移动不可到达对象会更好">为什么移动不可到达对象会更好&lt;/h3>
+&lt;p>在假定大多数对象都是可以到达的情况下，移动不可到达对象听起来还是挺符合逻辑的。但仔细想想看，这么做值得的原因好像也并不太明显。&lt;/p>
+&lt;p>假设我们按顺序创建了 A、B、C 三个对象，那它们在新生代（young generation）中也会以同样的顺序出现。如果 C 指向 B，B 指向 A，然后 C 是外部可到达对象，那么经过算法第一步调整后，A、B、C 的引用计数会变为 0、0、1，因为唯一一个外部可到达的对象是 C。&lt;/p>
+&lt;p>然后算法的下一步扫描到 A，A 被移动到暂时不可达列表，同样的事也会发生在 B 身上。接着，当算法扫描到 C 时，B 又被移回了可到达列表。最后，B 又再次被扫描，A 也被移回到了可到达列表。&lt;/p>
+&lt;p>所以，虽然看起来结果和最初时完全没有差别，但事实上可到达对象 B 和 A 分别被移动了两次。那为什么这还能算是一次胜利呢？移动可到达对象最直接的算法是将 A、B、C 各移动一次。关键在于，反复横跳的方式把对象的顺序变为 C、B、A - 正好和原始顺序相反。而且在以后的扫描中，它们都不会被移动。由于大部分对象都不是循环的，这可以在无限数量的后续集合中节省无限数量的移动。唯一可能会增加成本的，是第一次的扫描链。&lt;/p>
+&lt;h2 id="销毁不可到达对象">销毁不可到达对象&lt;/h2>
+&lt;p>一旦 GC 获取到一个确定不可访问对象的列表，它就会启动一个非常脆弱的进程，其目标是完全销毁列表中的对象。这个过程大致来说是按照以下顺序进行：&lt;/p>
+&lt;ol>
+&lt;li>处理和清理弱引用（如果有的话）。如果不可达对象集合中的一个元素即将被销毁，但它有些带回调的弱引用，那么这些回调需要被执行。这个过程会非常脆弱，因为任何错误都可能会导致那些处于相悖状态的对象被回调中调用的某些 Python 方法复活或重新可到达。另外，同属于不可到达集合中的弱引用（对象和它的弱引用在同一个不可达的循环中）则需要立即清除，而不需要执行回调。否则它将会在稍后 &lt;code>tp_clear&lt;/code> 槽被调用时被触发，造成严重的后果。忽略弱引用的回调没啥大问题，因为对象和弱引用都将会消失，所以说让弱引用先走一步也是合理的。&lt;/li>
+&lt;li>如果对象有过时的终结器（&lt;code>tp_del&lt;/code> 槽），则需要将它们移到 &lt;code>gc.garbage&lt;/code> 列表中。&lt;/li>
+&lt;li>调用终结器（&lt;code>tp_finalize&lt;/code> 槽），并将对象标记为已终结，以免因为对象复活或其他终结器先删除该对象时被调用两次。&lt;/li>
+&lt;li>处理复活的对象。如果某些对象已经复活，GC 将通过再次运行检测算法找到仍然无法访问的新对象子集，并继续处理它们。&lt;/li>
+&lt;li>调用每个对象的 &lt;code>tp_clear&lt;/code> 槽，这样所有内部链接都将被摧毁，引用数降为0，最后触发所有不可达对象的销毁。&lt;/li>
+&lt;/ol>
+&lt;h2 id="优化代">优化：代&lt;/h2>
+&lt;p>为了限制每次垃圾回收所花费的时间，GC 使用了一种流行的优化：代。这个概念背后的主要思想是，假设大多数对象的生命周期很短，因此可以在创建后不久就被回收。事实证明，这与很多 Python 程序的现实非常接近，因为许多临时对象的创建和销毁都非常快。对象越老，它就越不可能变得不可访问。利用这一事实，所有的容器对象会被划分为三个空间/代。每个新创建的对象都属于新生代（generation 0）。之前提到的算法将只对特定一代的对象执行，假设 A 对象处在初生代，如果它在这次回收扫描中幸存下来，那么它将被移动到下一代中生代（generation 1），在中生代它被调查的频率将被降低。如果处于中生代的 A 对象在另一轮的 GC 中又幸存了下来，那么它将被移动到最后一代老生代（generation 2），在那里它的被调查频率将被降到最低。&lt;/p>
+&lt;p>为了决定垃圾回收运行的时间，收集器会跟踪自上一次收集以来对象分配和回收的数量。当分配的数量减去回收的数量超过 &lt;code>threshold_0&lt;/code> 时，将启动回收。最初只检查初生代（generation 0）。如果自检查中生代（generation 1）以来，检查初生代的次数超过了 &lt;code>threshold_1&lt;/code> 次，则也检查中生代。对于老生代（generation 2），情况有些复杂；详见下文 &lt;a class="link" href="#%e5%9b%9e%e6%94%b6%e8%80%81%e7%94%9f%e4%bb%a3" >回收老生代&lt;/a>。刚刚提到的那些阈值可以使用 &lt;code>gc.get_threshold()&lt;/code> 函数进行检查：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">gc&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">get_threshold&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">(&lt;/span>&lt;span class="mi">700&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">10&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">10&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这些代的内容可以使用 &lt;code>gc.get_objects(generation=NUM)&lt;/code> 方法来检查，同时可以通过调用 &lt;code>gc.collect(genereation=NUM)&lt;/code> 在特定的代中触发收集。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">gc&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">class&lt;/span> &lt;span class="nc">MyObj&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">pass&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Move everything to the last generation so it&amp;#39;s easier to inspect&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># the younger generations.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">collect&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">0&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Create a reference cycle.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">MyObj&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">self&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">x&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Initially the object is in the youngest generation.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">get_objects&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">generation&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[&lt;/span>&lt;span class="o">...&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">__main__&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">MyObj&lt;/span> &lt;span class="nb">object&lt;/span> &lt;span class="n">at&lt;/span> &lt;span class="mh">0x7fbcc12a3400&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">...&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># After a collection of the youngest generation the object&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># moves to the next generation.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">collect&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">generation&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">0&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">get_objects&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">generation&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">get_objects&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">generation&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[&lt;/span>&lt;span class="o">...&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">__main__&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">MyObj&lt;/span> &lt;span class="nb">object&lt;/span> &lt;span class="n">at&lt;/span> &lt;span class="mh">0x7fbcc12a3400&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">...&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="回收老生代">回收老生代&lt;/h3>
+&lt;p>除了各种可配置的阈值之外，只有当 &lt;code>long_lived_pending / long_lived_total&lt;/code> 的比值高于给定值（固定值为25%）时，GC 才会触发老生代（generation 2）的完整回收流程。原因是，虽然“非完整回收”（即新生代和中生代的收集）需要检查的对象数量大致相同（由上述阈值决定），但完整回收的成本与长寿命对象的总数成正比，而长寿命对象几乎是无限的。确实，有人指出，每次创建 &amp;lt;常量&amp;gt; 对象时都需要进行完整收集，这会导致工作负载的性能急剧下降，因为这些工作负载包括创建和存储大量的长寿命对象（例如，构建一个大的 GC 跟踪列表将显示平方级性能，而不是预期的线性性能）。相反，使用上述比值会在对象总数中产生平摊的线性性能（其效果可以总结为：“随着对象数量的增长，每次完整的垃圾回收的成本越来越高，但我们做的垃圾收集却越来越少”）。&lt;/p>
+&lt;h2 id="优化复用域以节省内存">优化：复用域以节省内存&lt;/h2>
+&lt;p>为了节省内存，支持 GC 的每个对象中的两个链表指针会被重用于多个目的。这也是一种常见的优化，被称为“胖指针”或“标记指针”：携带额外数据的指针。“折叠”到指针中，意味着内联存储在表示地址的数据中，利用内存寻址的某些属性。（译者注：这段没看懂。。）大多数体系结构会将数据的类型与数据的大小对齐（通常是一个字或多个字），这种差异使得指针的一些最低有效位未被使用，这些位就可以用来标记或保存其他信息 - 最常见的是作为位字段（每个位都是一个单独的标记）- 只要使用指针的代码在访问内存之前屏蔽掉这些位。例如，在32位体系结构上（地址和字长），一个字是32位 = 4字节，因此字对齐的地址总是4的倍数，也就是说二进制串都会以00结束，最后两位就可以别做他用了；而在64位体系结构中，一个字是64位 = 8字节，所以对齐的地址总是8的倍数，二进制串都会以000结束，就会有三位可以使用。&lt;/p>
+&lt;p>CPython GC 使用两个胖指针，它们对应于上文 &lt;a class="link" href="#%e5%86%85%e5%ad%98%e5%b8%83%e5%b1%80%e5%92%8c%e5%af%b9%e8%b1%a1%e7%bb%93%e6%9e%84" >内存布局和对象结构&lt;/a> 一节中讨论的 &lt;code>PyGC_Head&lt;/code> 的额外字段域：&lt;/p>
+&lt;blockquote>
+&lt;p>警告
+由于存在额外的信息， “标记”或“胖”指针不能直接解引用，在获取真正的内存地址之前，必须剥离额外信息。对于直接操作链表的函数，需要特别小心，因为这些函数通常假定链表中的指针初一一致状态。&lt;/p>
+&lt;/blockquote>
+&lt;ul>
+&lt;li>&lt;code>_gc_prev&lt;/code> 字段通常作为“前一个”指针来维护双链表，但其最低的两位用于保存标记 &lt;code>PREV_MASK_COLLECTING&lt;/code> 和 &lt;code>_PyGC_PREV_MASK_FINALIZE&lt;/code>。在每次回收间隙，唯一可以出现的标志是 &lt;code>_PyGC_PREV_MASK_FINALIZE&lt;/code>，他表示对象是否已经被终结。在回收期间，除了这两个标志之外，&lt;code>_gc_prev&lt;/code> 还临时用于存储引用计数（&lt;code>gc_ref&lt;/code>）的副本，届时 GC 链表会变成单链表，直到 &lt;code>_gc_prev&lt;/code> 被恢复。&lt;/li>
+&lt;li>&lt;code>_gc_next&lt;/code> 字段被用作“下一个”指针来维护双链表，但在收集期间，它的最低位用于保存标记 &lt;code>NEXT_MASK_UNREACHABLE&lt;/code>，该标记表示在周期检测算法期间对象是否暂时不可达。这是仅用双链表实现分区（译者注：分为可到达和暂时不可达列表，详见上文&lt;a class="link" href="#%e8%af%86%e5%88%ab%e5%be%aa%e7%8e%af%e5%bc%95%e7%94%a8" >识别循环引用&lt;/a>）的一个缺点：虽然大多数操作的耗时都是恒定的，但是没有有效的方法来确定对象当前在哪个分区中。所以，当需要时，会使用特别的技巧（如 &lt;code>NEXT_MASK_UNREACHABLE&lt;/code>）。&lt;/li>
+&lt;/ul>
+&lt;h2 id="优化延迟追踪容器">优化：延迟追踪容器&lt;/h2>
+&lt;p>某些类型的容器无法产生引用循环，因此不需要由垃圾回收器跟踪。取消对这些对象的跟踪可以减少垃圾回收的成本，但是确定哪些对象可以不跟踪并不是那么容易，这就需要权衡二者利弊。解除对容器对象追踪的时刻，有两种可能的策略：&lt;/p>
+&lt;ol>
+&lt;li>在容器对象被创建时&lt;/li>
+&lt;li>在容器对象被垃圾回收检查时&lt;/li>
+&lt;/ol>
+&lt;p>一般来说，不跟踪原子类型的实例，而跟踪非原子类型的实例（容器、用户定义对象等）。当然，可以提供一些特定类型的优化，来压缩简单实例在垃圾回收时占用的空间。以下是受益于延迟追踪的原生类型示例：&lt;/p>
+&lt;ul>
+&lt;li>只包含不可变对象（整数、字符串等，以及递归包含不可变对象的元组）的元组不需要追踪。解释器创建了大量的元组，其中许多元组直到垃圾回收时才会存在。因此，符合这样条件元组，不值得在对象创建时取消追踪。也就是说，除了空元组之外，所有的元组在创建时都会被追踪，后面在垃圾回收期间，再来确定是否可以不追踪幸存的元组（译者注：额，感觉有点车轱辘话）。如果元组的所有内容都没有被追踪，那么该元组可以不被追踪。在每个垃圾回收周期中，检查元组都会被检查是否被追踪。取消元组的追踪可能需要一个周期以上。&lt;/li>
+&lt;li>只包含不可变对象的字典也不需要被追踪。字典在创建时，不会被追踪。如果有被追踪项被插入到字典中，不管其作为键亦或是值，都会将该字典设置为需要追踪。在完整的垃圾回收期间（所有代），收集器将取消跟踪所有内容都未被追踪的字典。&lt;/li>
+&lt;/ul>
+&lt;p>垃圾回收器模块提供了 Python 函数 &lt;code>is_tracked(obj)&lt;/code>，他返回对象当前的跟踪状态。当然，后续的垃圾回收可能会改变这个状态。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">False&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s2">&amp;#34;a&amp;#34;&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">False&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">([])&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">True&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">({})&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">False&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">({&lt;/span>&lt;span class="s2">&amp;#34;a&amp;#34;&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">})&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">False&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">({&lt;/span>&lt;span class="s2">&amp;#34;a&amp;#34;&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="p">[]})&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">True&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div></description></item><item><title>在Linux中离线编译安装Python</title><link>https://aiar.site/post/0820636dfb6845c58164439d206e9baf/</link><pubDate>Thu, 11 Jan 2024 10:07:40 +0800</pubDate><guid>https://aiar.site/post/0820636dfb6845c58164439d206e9baf/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShAdH.png" alt="Featured image of post 在Linux中离线编译安装Python" />&lt;h2 id="概述">概述&lt;/h2>
+&lt;p>最近在将 Python3.6 升级为 Python3.9，记录下过程。
+由于服务器环境均无法连接互联网，故采用从可联网机器上下载安装包再上传至服务器离线编译安装的方式。&lt;/p>
+&lt;p>本文默认没有专职服务器运维人员，个人拥有服务器所有权限。（有专业人员哪还用得着自己装。。ORZ）&lt;/p>
+&lt;p>下文在 &lt;code>CentOS 7.8&lt;/code> 中实测成功。&lt;/p>
+&lt;h2 id="依赖">依赖&lt;/h2>
+&lt;p>在安装 Python 时，程序会依赖一些系统程序。为了能正确安装，需要提前将这些依赖装好。&lt;/p>
+&lt;p>可以在 &lt;a class="link" href="https://pkgs.org/" target="_blank" rel="noopener"
+>这里&lt;/a> 按照系统版本和所需包搜索下载。&lt;/p>
+&lt;p>ps: 说实话，其实装的时候还是有点慌的&lt;/p>
+&lt;p>&lt;em>以 CentOS 7.8 为例，其他系统版本需编译试错、搜索&lt;/em>
+&lt;strong>编译工具&lt;/strong> (使用的是系统自带的)&lt;/p>
+&lt;ol>
+&lt;li>gcc == 4.8.5&lt;/li>
+&lt;li>make == 3.82&lt;/li>
+&lt;/ol>
+&lt;p>&lt;strong>系统依赖&lt;/strong>&lt;/p>
+&lt;ol>
+&lt;li>zlib-devel # 影响 zlib 包的安装&lt;/li>
+&lt;li>libffi-devel # 忘了影响啥，装就对了&lt;/li>
+&lt;li>openssl-devel # 影响 _ssl 包的安装，如果装了这个还是无法正确安装，则可以看 &lt;a class="link" href="#%e9%99%84%e5%bd%95" >后文附录部分&lt;/a>&lt;/li>
+&lt;li>bzip2-devel # 影响 _bz2 包的安装&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">The necessary bits to build these optional modules were not found:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_bz2 _curses _curses_panel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_dbm _gdbm _hashlib
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_lzma _sqlite3 _ssl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_tkinter _uuid readline
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">zlib
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_ctypes - libffi-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_bz2 - bzip2-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_uuid - uuid-devel/libuuid-devel 前者好像和gdbm-devel有冲突
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_lzma - xz-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_dbm - gdbm-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">zlib - zlib-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">readline - readline-devel
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_hashlib - openssl11
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_ssl - openssl11
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="下载">下载&lt;/h2>
+&lt;p>Python官方下载地址：&lt;a class="link" href="https://www.python.org/downloads/" target="_blank" rel="noopener"
+>https://www.python.org/downloads/&lt;/a>&lt;br>
+Python官方 ftp 下载地址：&lt;a class="link" href="https://www.python.org/ftp/python/" target="_blank" rel="noopener"
+>https://www.python.org/ftp/python/&lt;/a>&lt;/p>
+&lt;p>可以按需下载相应的 Python 版本，由于是要在 Linux 中编译安装，所以我们需要下载 &lt;code>Gzipped source tarball&lt;/code> 或者 &lt;code>XZ compressed source tarball&lt;/code>，前者是 &lt;code>.tgz&lt;/code> 格式，后者是 &lt;code>.tar.xz&lt;/code>，正确解压后的结果无本质区别。&lt;/p>
+&lt;p>每个大版本中较新的版本建议从 ftp 中下载，downloads 中不是很全。&lt;/p>
+&lt;p>需要注意的是，Python 的同一个大版本在绝大多数情况下对于第三方包来说区别不大，
+即 &lt;code>Python 3.9.*&lt;/code> 中所有的版本，绝大部分情况都可以通用，差别细节详见官网版本介绍。&lt;/p>
+&lt;h2 id="解压">解压&lt;/h2>
+&lt;p>下载之后我们就会得到一个类似 &lt;code>Python-3.9.13.tgz&lt;/code> 这样的文件，将其上传到服务器之后，随便在一个地方进行解压即可，这个文件可以理解为一个安装包，具体安装到哪里需要后续配置。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> /path/to/xxx
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ tar -xvf Python-3.9.13.tgz
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="配置">配置&lt;/h2>
+&lt;p>然后进入到解压出的文件夹中，开始配置安装规则。&lt;/p>
+&lt;p>常用的参数就是 &lt;code>--prefix&lt;/code> 这个参数，它决定了Python将被安装在哪里。
+如果不填，将会默认安装到 &lt;code>/usr/local/python&lt;/code> 中，如此则后面的编译安装命令需要root权限，但一般 &lt;strong>不建议&lt;/strong> 这样，因为如此可能会导致将操作系统之前已有的 Python 强制覆盖，引发一系列不可控的问题。&lt;/p>
+&lt;p>该示例如果完成安装，则 Python 命令的可执行文件位置是 &lt;code>/home/app/depends/python/py39/bin/python3.9&lt;/code>&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> Python-3.9.13/
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ./configure --prefix&lt;span class="o">=&lt;/span>/home/app/depends/python/py39
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>配置成功后，可能会有类似下文这样的建议，但笔者亲测，当 gcc 版本比较低时(比如本例中的4.8.5)，使用该建议无法编译成功。所以建议低版本的 gcc 不要使用 &lt;code>--enable-optimizations&lt;/code> 参数。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">If you want a release build with all stable optimizations active (PGO, etc),
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">please run ./configure --enable-optimizations
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="编译">编译&lt;/h2>
+&lt;p>配置如果没有问题，就可以开始编译了，如果安装到了系统目录下则需要root权限。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ make
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果依赖没有安装，或者遗漏，那么配置、编译这两步可能需要反复几次。
+判断自己需要的内置包能不能正常安装，就需要看 make 的执行结果，最后下面一块的内容会有类似下面这样的输出。如果其中没有 &lt;code>Failed&lt;/code> 或者 &lt;code>error&lt;/code> 等关键词出现，并且 &lt;code>necessary&lt;/code> 中缺少的包你未来也用不到，那么恭喜你可以进行下一步 &lt;strong>安装&lt;/strong> 了。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">Python build finished successfully!
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">The necessary bits to build these optional modules were not found:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_tkinter
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">To find the necessary bits, look in setup.py in detect_modules() for the module&amp;#39;s name.
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">The following modules found by detect_modules() in setup.py, have been
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">built by the Makefile instead, as configured by the Setup files:
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">_abc atexit pwd
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">time
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>示例中的这次编译意味着，&lt;code>_tkinter&lt;/code> 由于缺少相应的依赖，将不会被安装。搜索后得知，缺少 &lt;code>tkinter&lt;/code> 这个包，可以参照上文 &lt;a class="link" href="#%e4%be%9d%e8%b5%96" >依赖&lt;/a> 进行安装。&lt;/p>
+&lt;p>具体哪些包依赖什么，可以以这样的关键词搜索: &lt;code>[系统版本] [Python版本] [缺失的包名] not found&lt;/code>，以 &lt;code>_tkinter&lt;/code> 为例，即 &lt;code>CentOS7 Python3 _tkinter not found&lt;/code>。
+如果是国外或开源的操作系统(RedHat、CentOS、Arch、Ubuntu等)建议使用 Google，无法科学上网则建议使用 bing 国际版。如果是国内自主开发的系统，建议使用bing，且尽可能看官方建议。&lt;/p>
+&lt;p>拒绝百度，从我做起。&lt;/p>
+&lt;h2 id="安装">安装&lt;/h2>
+&lt;p>一般来说，编译能过，而且不缺依赖，则安装就会比较顺。所以，请尽可能确保编译无误后，最后再执行安装。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ make install
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>没报错就算成功，如果配置时用了 &lt;code>--prefix&lt;/code> 参数指定了一个 &lt;strong>不在&lt;/strong> &lt;code>$PATH&lt;/code> 中的地址，则会有下面这样的提示。
+意思是，没办法直接用 &lt;code>python&lt;/code> 命令直接执行刚刚安装好的程序。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-gdscript3" data-lang="gdscript3">&lt;span class="line">&lt;span class="cl">&lt;span class="n">Installing&lt;/span> &lt;span class="n">collected&lt;/span> &lt;span class="n">packages&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="n">setuptools&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">pip&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">WARNING&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="n">The&lt;/span> &lt;span class="n">scripts&lt;/span> &lt;span class="n">pip3&lt;/span> &lt;span class="ow">and&lt;/span> &lt;span class="n">pip3&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="mi">9&lt;/span> &lt;span class="n">are&lt;/span> &lt;span class="n">installed&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="s1">&amp;#39;/path/to/python/bin&amp;#39;&lt;/span> &lt;span class="n">which&lt;/span> &lt;span class="n">is&lt;/span> &lt;span class="ow">not&lt;/span> &lt;span class="n">on&lt;/span> &lt;span class="n">PATH&lt;/span>&lt;span class="o">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Consider&lt;/span> &lt;span class="n">adding&lt;/span> &lt;span class="n">this&lt;/span> &lt;span class="n">directory&lt;/span> &lt;span class="n">to&lt;/span> &lt;span class="n">PATH&lt;/span> &lt;span class="ow">or&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">you&lt;/span> &lt;span class="n">prefer&lt;/span> &lt;span class="n">to&lt;/span> &lt;span class="n">suppress&lt;/span> &lt;span class="n">this&lt;/span> &lt;span class="n">warning&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">use&lt;/span> &lt;span class="o">--&lt;/span>&lt;span class="n">no&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="n">warn&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="n">script&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="n">location&lt;/span>&lt;span class="o">.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Successfully&lt;/span> &lt;span class="n">installed&lt;/span> &lt;span class="n">pip&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="mf">22.0&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="mi">4&lt;/span> &lt;span class="n">setuptools&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="mf">58.1&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="mi">0&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>查看 PATH 命令&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">echo&lt;/span> &lt;span class="nv">$PATH&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果需要在终端直接执行 &lt;code>python&lt;/code>，这里提供两种方法来实现。&lt;/p>
+&lt;ol>
+&lt;li>使用软连接
+可以使用软连接将刚刚安装的 Python 放到 &lt;code>$PATH&lt;/code> 中的某个路径下，类似创建了一个快捷方式。
+比如，安装目录为 &lt;code>/new/path/to/python&lt;/code>，PATH 中有的路径 &lt;code>/xxx/xxx&lt;/code>&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ ln -s /new/path/to/python/bin/python3.9 /xxx/xxx/python3.9
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ln -s /new/path/to/python/bin/pip.9 /xxx/xxx/pip3.9
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="2">
+&lt;li>直接将安装目录放到 PATH 中
+假设默认 shell 是 bash，安装目录为 &lt;code>/new/path/to/python&lt;/code>。则修改该用户的 .bashrc 文件即可。&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ vim ~/.bashrc
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">~/.bashrc
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">export&lt;/span> &lt;span class="nv">PATH&lt;/span>&lt;span class="o">=&lt;/span>/new/path/to/python/bin:&lt;span class="nv">$PATH&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>保存文件后，执行&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> ~/.bashrc
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>以后该用户就可以直接使用 &lt;code>python3.9&lt;/code> 命令了。&lt;/p>
+&lt;h2 id="附录">附录&lt;/h2>
+&lt;p>当时的情况是，通过 &lt;code>yum&lt;/code> 安装 &lt;code>openssl-devel&lt;/code> 之后，在安装 &lt;code>Python3.9&lt;/code> 时 &lt;code>ssl&lt;/code> 模组仍无法正确安装(猜测是openssl版本过低，时间久远有点忘记细节了)，故使用编译安装的方式，重新装了一个 &lt;code>openssl-1.1.1&lt;/code>，再在编译 Python 时使用 &lt;code>--with-openssl&lt;/code> 参数，最后 ssl 成功安装。&lt;/p>
+&lt;p>下为当时的操作记录.&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">615 tar -zxvf openssl-1.1.1t.tar.gz
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">616 ll
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">617 cd openssl-1.1.1t/
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">618 ll
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">619 ./Configure -h
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">620 ./config -h
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">625 cd /path/xxxxx
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">626 mkdir openssl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">627 pwd
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">628 cd -
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">629 ./config --prefix=/path/to/openssl --openssldir=/path/to/openssl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">630 make
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">631 make install
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">632 cd -
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">633 ll openssl/
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">634 cd -
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">635 cd ..
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">636 cd Python-3.9.13/
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">646 ./configure --prefix=/path/to/py39 --with-openssl=/path/to/openssl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">647 make
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">648 make install
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">649 /path/to/python3.9
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">650 whereis python
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">664 echo $PATH
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">670 ln -s /path/to/py39/bin/python3.9 /path/in/$PATH/python3.9
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">671 ln -s /path/to/py39/bin/pip3.9 /path/in/$PATH/pip3.9
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">673 python3.9
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div></description></item><item><title>Python虚拟环境构建与新环境部署</title><link>https://aiar.site/post/2a95e2853e784470b1db121a406b90ac/</link><pubDate>Thu, 11 Jan 2024 10:01:17 +0800</pubDate><guid>https://aiar.site/post/2a95e2853e784470b1db121a406b90ac/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShAdH.png" alt="Featured image of post Python虚拟环境构建与新环境部署" />&lt;h2 id="系统环境">系统环境&lt;/h2>
+&lt;p>本文依赖机器为，64位 &lt;code>CentOS Linux 7.9.2009&lt;/code>，Python 使用 CentOS yum 直接安装的 &lt;code>3.6.8&lt;/code> 版本。&lt;/p>
+&lt;p>&lt;strong>Note:&lt;/strong> Windows，MacOS 流程大体相近，具体细节或有出入。Python2不在本文讨论范围。
+&lt;strong>Note:&lt;/strong> 本文依赖官方pip源，自建pypi的离线模式不在本文讨论范围。
+&lt;strong>Note:&lt;/strong> 本文虚拟环境仅使用标准库自带的 &lt;code>venv&lt;/code> 模块，第三方的poetry，pyenv等不在本文讨论范围。
+&lt;strong>Note:&lt;/strong> 关于项目部署，本文使用直接源码放上去的粗暴方式。打包成可执行文件或者whl安装又或CI/CD等方式不在本文讨论范围。&lt;/p>
+&lt;h2 id="虚拟环境">虚拟环境&lt;/h2>
+&lt;p>项目必须使用单独 &lt;a class="link" href="https://zhuanlan.zhihu.com/p/216157886" target="_blank" rel="noopener"
+>虚拟环境&lt;/a>，项目中用到的所有第三方包都需在虚拟环境中安装。目的是：&lt;/p>
+&lt;ol>
+&lt;li>项目中安装的依赖不会污染系统环境&lt;/li>
+&lt;li>项目开发完毕后可以快速整理依赖，方便部署&lt;/li>
+&lt;/ol>
+&lt;h3 id="创建">创建&lt;/h3>
+&lt;p>在项目根目录下利用 python 标准库的 &lt;code>venv&lt;/code> 模块创建名为 &lt;code>.venv&lt;/code> 的虚拟环境。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ mkdir myproject
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> myproject
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ python -m venv .venv
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ ls -la
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">total &lt;span class="m">0&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">drwxrwxr-x. &lt;span class="m">3&lt;/span> node0 node0 &lt;span class="m">19&lt;/span> Mar &lt;span class="m">16&lt;/span> 15:54 .
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">drwxrwxr-x. &lt;span class="m">5&lt;/span> node0 node0 &lt;span class="m">54&lt;/span> Mar &lt;span class="m">16&lt;/span> 15:54 ..
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">drwxrwxr-x. &lt;span class="m">5&lt;/span> node0 node0 &lt;span class="m">74&lt;/span> Mar &lt;span class="m">16&lt;/span> 15:54 .venv
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="激活">激活&lt;/h3>
+&lt;p>激活后，命令提示符前面会有虚拟环境标识 &lt;code>(.venv)&lt;/code>。下文操作中带有该标记的即标识在虚拟环境中执行，没有该标记则表示在系统真实环境。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> .venv/bin/activate
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">---------- -------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="开发阶段">开发阶段&lt;/h2>
+&lt;p>&lt;strong>！！！强烈建议！！！&lt;/strong>
+还是找一个在线的环境进行开发，离线开发实属给自己找罪受。&lt;/p>
+&lt;h3 id="依赖安装升级">依赖安装&amp;amp;升级&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install requests &lt;span class="c1"># 默认安装该包可用的最新版&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install &lt;span class="nv">requests&lt;/span>&lt;span class="o">==&lt;/span>21.2 &lt;span class="c1"># 安装指定版本&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install --upgrade requests &lt;span class="c1"># 升级包到最新版本&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="optional-升级pip">[Optional] 升级pip&lt;/h3>
+&lt;p>有时pip版本过低，导致部分第三方包无法安装，可以尝试升级pip版本。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip &lt;span class="o">(&lt;/span>9.0.3&lt;span class="o">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools &lt;span class="o">(&lt;/span>39.2.0&lt;span class="o">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ python -m pip install --upgrade pip
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">---------- -------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="部署前的准备">部署前的准备&lt;/h2>
+&lt;p>当项目开发基本完毕，即将迁移部署测试时，就体现出虚拟环境的优势所在了。
+我们可以直接用pip的freeze功能将所在虚拟环境中所有的包及其版本写入一个文件，后续下载依赖安装包进行离线安装，或者直接在线安装都可以以该文件作为指引，方便的一比。&lt;/p>
+&lt;h3 id="导出依赖指示文件">导出依赖指示文件&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">------------------ ---------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">certifi 2022.12.7
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">charset-normalizer 2.0.12
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">idna 3.4
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">requests 2.27.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">urllib3 1.26.15
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip freeze &amp;gt; requirements.txt
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ cat requirements.txt
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">certifi&lt;/span>&lt;span class="o">==&lt;/span>2022.12.7
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">charset-normalizer&lt;span class="o">==&lt;/span>2.0.12
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">idna&lt;/span>&lt;span class="o">==&lt;/span>3.4
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">requests&lt;/span>&lt;span class="o">==&lt;/span>2.27.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nv">urllib3&lt;/span>&lt;span class="o">==&lt;/span>1.26.15
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="optional-根据依赖指示文件下载对应安装包到指定目录">[Optional] 根据依赖指示文件下载对应安装包到指定目录&lt;/h3>
+&lt;p>如果部署的环境无法联网，则需事先将依赖的所有安装包下载好，部署时一并带到新环境。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip download -r requirements.txt -d ./packages
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ ll packages
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">total &lt;span class="m">460&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">155255&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 certifi-2022.12.7-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">39623&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 charset_normalizer-2.0.12-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">61538&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 idna-3.4-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">63133&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 requests-2.27.1-py2.py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">-rw-rw-r--. &lt;span class="m">1&lt;/span> node0 node0 &lt;span class="m">140881&lt;/span> Mar &lt;span class="m">16&lt;/span> 16:27 urllib3-1.26.15-py2.py3-none-any.whl
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="项目结构">项目结构&lt;/h3>
+&lt;p>至此，部署的准备阶段也基本完成，项目的结构基本定型。在省略一些非本文重点讨论的诸如.gitignore，.env或者一些部署自动化shell之后，大概能得到一个类似的项目结构。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-txt" data-lang="txt">&lt;span class="line">&lt;span class="cl">myproject
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> ├── .venv
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ └─ ...
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> ├── packages
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── certifi-2022.12.7-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── charset_normalizer-2.0.12-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── idna-3.4-py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── requests-2.27.1-py2.py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ └── urllib3-1.26.15-py2.py3-none-any.whl
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> ├─ app
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── __init__.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ ├── config.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> │ └── main.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> ├── README.md
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> └── requirements.txt
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>可以将其打成一个zip包，方便上传服务器，比如叫 &lt;code>myproject.zip&lt;/code>&lt;/p>
+&lt;h2 id="开始部署">开始部署&lt;/h2>
+&lt;p>到了一个新的环境，首先要做到就是将项目压缩包放上去，找个位置解压好后，进到项目目录。然后以前文提到方式创建并激活虚拟环境。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ unzip myproject.zip
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> myproject
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ python -m venv .venv
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> .venv/bin/activate
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">---------- -------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="根据依赖指示文件安装依赖">根据依赖指示文件安装依赖&lt;/h3>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install -r requirements.txt &lt;span class="c1"># 在线直接安装&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">or
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip install --no-index --find-links&lt;span class="o">=&lt;/span>./packages -r ./requirements.txt &lt;span class="c1"># 离线使用安装包安装&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">(&lt;/span>.venv&lt;span class="o">)&lt;/span> $ pip list
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Package Version
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">------------------ ---------
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">certifi 2022.12.7
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">charset-normalizer 2.0.12
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">idna 3.4
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">pip 21.3.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">requests 2.27.1
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">setuptools 39.2.0
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">urllib3 1.26.15
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="optional-部署脚本">[Optional] 部署脚本&lt;/h3>
+&lt;p>部署中的一些操作其实较为繁琐，在理解其流程后，可将部署过程中项目的环境搭建、启动停止等操作封装为shell脚本，以简化操作。&lt;/p>
+&lt;p>脚本们可单独放置在一个目录下，比如名为 &lt;code>scripts&lt;/code>。可根据实际情况编写符合自身项目的脚本，也无固定模式格式要求，主要为了简化操作。&lt;/p>
+&lt;p>本文计划将脚本分为两个，第一个为环境搭建，包括虚拟环境的构建初始化以及依赖的安装，命名为 &lt;code>init-env.sh&lt;/code>；第二个为项目服务启停相关，包括状态查询、启动、停止和重启，以项目名称命名 &lt;code>myproject.sh&lt;/code>。&lt;/p>
+&lt;p>具体代码可参考 &lt;a class="link" href="http://10.10.50.216/lixuechen/graft/tree/master/scripts" target="_blank" rel="noopener"
+>graft&lt;/a> 中的脚本编写。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ mkdir scripts
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> scripts
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ touch init-env.sh myproject.sh
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="参考">参考&lt;/h2>
+&lt;p>Python 官方的包管理平台 &lt;a class="link" href="https://pypi.org/" target="_blank" rel="noopener"
+>PyPI&lt;/a>&lt;/p></description></item><item><title>[译] Python中的__doc__是啥</title><link>https://aiar.site/post/fc3072369de748799c9cad55cb6eda25/</link><pubDate>Mon, 30 Jan 2023 09:56:47 +0800</pubDate><guid>https://aiar.site/post/fc3072369de748799c9cad55cb6eda25/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShAdH.png" alt="Featured image of post [译] Python中的__doc__是啥" />&lt;blockquote>
+&lt;p>原文标题：What is &lt;strong>doc&lt;/strong> in Python?&lt;br>
+原文作者：&lt;a class="link" href="https://blog.finxter.com/author/xcentpy_cfsh849y/" target="_blank" rel="noopener"
+>Chris&lt;/a>&lt;br>
+原文链接：&lt;a class="link" href="https://blog.finxter.com/what-is-__-doc-__-in-python/" target="_blank" rel="noopener"
+>https://blog.finxter.com/what-is-&lt;strong>-doc-&lt;/strong>-in-python/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="what">What&lt;/h2>
+&lt;p>Python 的每个对象中都有一个叫做 &lt;code>__doc__&lt;/code> 的属性，用来存放该对象的文档信息。比如对于 &lt;code>Dog&lt;/code> 类，可以直接调用 &lt;code>Dog.__doc__&lt;/code> 来获取它的文档字符串(docstring)信息。&lt;/p>
+&lt;p>可以使用三个引号将字符串包围的方式来定义文档字符串，就像例子中这样：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="k">class&lt;/span> &lt;span class="nc">Dog&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="s2">&amp;#34;&amp;#34;&amp;#34;你最好的朋友。&amp;#34;&amp;#34;&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">def&lt;/span> &lt;span class="nf">do_nothing&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="bp">self&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">pass&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Dog&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="vm">__doc__&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># 你最好的朋友。&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>Python 中万物皆对象，函数也不例外，所以也可以在函数中定义文档字符串：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">bark&lt;/span>&lt;span class="p">():&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="s2">&amp;#34;&amp;#34;&amp;#34;汪汪汪&amp;#34;&amp;#34;&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">pass&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">bark&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="vm">__doc__&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># 汪汪汪&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>注意，如果没有定义文档字符串，那么调用 &lt;code>xxx.__doc__&lt;/code> 时将返回 &lt;code>None&lt;/code>。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">bark&lt;/span>&lt;span class="p">():&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">pass&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">bark&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="vm">__doc__&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># None&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="why">Why&lt;/h2>
+&lt;p>为什么要使用文档字符串(docstring)呢？&lt;/p>
+&lt;p>在代码中定义文档字符串最大的好处在于，可以以编程的方式创建漂亮的文档了。借助类似 &lt;a class="link" href="https://www.sphinx-doc.org/en/master/examples.html" target="_blank" rel="noopener"
+>Sphinx&lt;/a> 这样的工具，为项目创建类似下图这样的文档将变得非常容易，只需要在代码中定义文档字符串，即为 &lt;code>__doc__&lt;/code> 赋值。&lt;/p>
+&lt;p>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShMy8.png"
+loading="lazy"
+alt="Sphinx-doc"
+>&lt;/p>
+&lt;h2 id="practice">Practice&lt;/h2>
+&lt;p>&lt;a class="link" href="https://www.python.org/dev/peps/pep-0257/" target="_blank" rel="noopener"
+>官方 PEP 标准&lt;/a>中定义了很多文档字符串优雅的实践，它们被称为 &lt;em>文档字符串规范(Docstring Conventions)&lt;/em>。定义项目中的文档字符串时，请尽可能按照这些规范。下面将列举出规范中最重要的7条：&lt;/p>
+&lt;ol>
+&lt;li>所有的模块(module)，函数(function)，方法(method)和类(class)都应该拥有文档字符串&lt;/li>
+&lt;li>为了一致性原则，请使用 &lt;code>&amp;quot;&amp;quot;&amp;quot;三个双引号&amp;quot;&amp;quot;&amp;quot;&lt;/code> 来包围文档字符串&lt;/li>
+&lt;li>即使文档字符串一行就能写下也应使用三个引号，以便于以后扩展&lt;/li>
+&lt;li>若无特殊情况，文档字符串前后请不要有空行&lt;/li>
+&lt;li>描述项目代码的行为时，请使用类似 &lt;code>&amp;quot;&amp;quot;&amp;quot;Do X and return Y.&amp;quot;&amp;quot;&amp;quot;&lt;/code> 的主格形式，然后以句点结尾。请 &lt;strong>不要使用&lt;/strong> 类似 &lt;code>&amp;quot;&amp;quot;&amp;quot;Does X and returns Y.&amp;quot;&amp;quot;&amp;quot;&lt;/code> 这样的第三人称单数形式&lt;/li>
+&lt;li>多行文档字符串可以以一句概括开头，然后一个空行，接着是更详细的描述，类似 &lt;code>argument --- name of the person (string)&lt;/code> 这样来描述函数或方法的一个参数，每个参数占一行。&lt;/li>
+&lt;li>多行文档字符串无需另起一行，紧接着引号开始就好，就像这样 &lt;code>&amp;quot;&amp;quot;&amp;quot;Some summary...&lt;/code>&lt;/li>
+&lt;/ol>
+&lt;p>如果你是个完美主义者，或是有了中级的代码能力，可以查看&lt;a class="link" href="https://www.python.org/dev/peps/pep-0257/" target="_blank" rel="noopener"
+>官方文档&lt;/a>来获取更多的例子。&lt;/p></description></item><item><title>[译] PEP202 - 列表推导式</title><link>https://aiar.site/post/d034826933334bcea9d37ef90edfe891/</link><pubDate>Mon, 09 Jan 2023 17:00:01 +0800</pubDate><guid>https://aiar.site/post/d034826933334bcea9d37ef90edfe891/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShKQf.png" alt="Featured image of post [译] PEP202 - 列表推导式" />&lt;blockquote>
+&lt;p>原文标题：PEP 202 List Comprehensions&lt;br>
+原文作者：Barry Warsaw &amp;lt;barry at python.org&amp;gt;&lt;br>
+原文链接：&lt;a class="link" href="https://peps.python.org/pep-0202/" target="_blank" rel="noopener"
+>https://peps.python.org/pep-0202/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="概览">概览&lt;/h2>
+&lt;p>本篇 PEP 描述了一项 Python 语法扩展建议，列表推导式。&lt;/p>
+&lt;h2 id="方案">方案&lt;/h2>
+&lt;p>建议列表内元素可以使用 &lt;code>for&lt;/code> 和 &lt;code>if&lt;/code> 语句进行条件构造（包括相应嵌套格式）。&lt;/p>
+&lt;h2 id="基本原理">基本原理&lt;/h2>
+&lt;p>现今，使用 &lt;code>map()&lt;/code>、&lt;code>filter()&lt;/code> 配合嵌套循环创建列表的方式大行其道，而列表推导式提供了一种更简便的方式。&lt;/p>
+&lt;h2 id="例子">例子&lt;/h2>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">5&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">7&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">9&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">20&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">%&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">10&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">12&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">14&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">16&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">18&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">nums&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">fruit&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="s2">&amp;#34;Apples&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;Peaches&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;Pears&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;Bananas&amp;#34;&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[(&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">nums&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">f&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">fruit&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Apples&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Apples&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Apples&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Apples&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[(&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">nums&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">f&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">fruit&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="s2">&amp;#34;P&amp;#34;&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[(&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">nums&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">f&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">fruit&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="s2">&amp;#34;P&amp;#34;&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">%&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">zip&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">nums&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">fruit&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span>&lt;span class="o">%&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">==&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="参考实现">参考实现&lt;/h2>
+&lt;p>列表推导式已成为 Python 语言 2.0 版本的一部分，相关信息已收录至&lt;a class="link" href="http://docs.python.org/reference/expressions.html#list-displays" target="_blank" rel="noopener"
+>1&lt;/a>&lt;/p>
+&lt;h2 id="bdfl-声明">BDFL 声明&lt;/h2>
+&lt;ul>
+&lt;li>请参照以上提出的语法&lt;/li>
+&lt;li>不支持 &lt;code>[x, y for ...]&lt;/code> 格式，应调整为 &lt;code>[(x, y) for ...]&lt;/code> 格式&lt;/li>
+&lt;li>嵌套格式 &lt;code>[... for x ... for y ...]&lt;/code> 中，类似普通 for 嵌套循环，最后面的索引最先执行&lt;/li>
+&lt;/ul>
+&lt;h2 id="参考">参考&lt;/h2>
+&lt;p>&lt;a class="link" href="http://docs.python.org/reference/expressions.html#list-displays" target="_blank" rel="noopener"
+>1 http://docs.python.org/reference/expressions.html#list-displays&lt;/a>&lt;/p>
+&lt;p>源文件：&lt;a class="link" href="https://github.com/python/peps/blob/main/pep-0202.txt" target="_blank" rel="noopener"
+>https://github.com/python/peps/blob/main/pep-0202.txt&lt;/a>&lt;/p></description></item><item><title>[译] PEP289 - 生成式表达式</title><link>https://aiar.site/post/58ee3468894b4f4e8eb1c7b32e008251/</link><pubDate>Fri, 21 May 2021 09:03:49 +0800</pubDate><guid>https://aiar.site/post/58ee3468894b4f4e8eb1c7b32e008251/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShKQf.png" alt="Featured image of post [译] PEP289 - 生成式表达式" />&lt;blockquote>
+&lt;p>原文标题：PEP 289 - Generator Expressions&lt;br>
+原文作者：python at rcn.com (Raymond Hettinger)&lt;br>
+原文链接：&lt;a class="link" href="https://peps.python.org/pep-0289/" target="_blank" rel="noopener"
+>https://peps.python.org/pep-0289/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="概览">概览&lt;/h2>
+&lt;p>本篇 PEP 介绍了生成器表达式(Generator Expressions)这种高性能的，内存高效泛化的列表推导式(List Comprehensions)和生成器(generators)。&lt;/p>
+&lt;h2 id="基本原理">基本原理&lt;/h2>
+&lt;p>从以往编程经验来看，列表推导式在 Python 的各个角落都有广泛的实用性。但是，其中不少的情况其实并不需要在内存中创建完整的列表(List)，而一次迭代一个元素就恰好满足它们的需求。&lt;/p>
+&lt;p>例如，下面这段列表求和的代码将在内存中完整的创建一个乘方的列表，然后遍历其中每一个值，最后当该引用(reference)不再需要时，删除整个列表：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="nb">sum&lt;/span>&lt;span class="p">([&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">)])&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>现在，可以通过使用生成器表达式来节省内存：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>其他容器对象的构造函数也同样支持类似的特性：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">s&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">set&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">word&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">line&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">page&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">word&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">line&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">split&lt;/span>&lt;span class="p">())&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">d&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">dict&lt;/span>&lt;span class="p">((&lt;/span>&lt;span class="n">k&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">func&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">k&lt;/span>&lt;span class="p">))&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">k&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">keylist&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>生成器表达式对于类似 &lt;code>sum()&lt;/code>，&lt;code>min()&lt;/code>， &lt;code>max()&lt;/code> 这种能将一个可迭代的输入汇聚成一个值的函数有着非常高效的作用：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="nb">max&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nb">len&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">line&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">line&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">file&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">line&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">strip&lt;/span>&lt;span class="p">())&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>生成器表达式简化(address)了一些使用 &lt;code>lambda&lt;/code> 函数的例子：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">reduce&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">lambda&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="n">s&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">a&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">myattr&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">data&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">reduce&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">lambda&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="n">s&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">a&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">],&lt;/span> &lt;span class="n">data&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>它们可以被简化为：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">myattr&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">a&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">data&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">a&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">data&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>列表生成式极大减少了开发人员对 &lt;code>filter()&lt;/code> 和 &lt;code>map()&lt;/code> 的需求；同时，生成器表达式也被寄予厚望来最大可能的减少人们对 &lt;code>itertools.ifliter()&lt;/code> 和 &lt;code>itertools.imap()&lt;/code> 的使用需求。相比之下，&lt;code>itertools&lt;/code> 中其他方法的能力将被生成器表达式进一步增强：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">dotproduct&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">y&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">y&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">itertools&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">izip&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x_vector&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">y_vector&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在升级扩展应用时，与列表推导式类似的语法也能更容易的将已有代码转换为生成器表达式。&lt;/p>
+&lt;p>早期的版本中，生成器表达式相比于列表推导式有着相当明显的性能优势。但是后者针对 &lt;code>Py2.4&lt;/code> 做了高度优化，现在二者在处理中小型数据集时的性能已经大致相当。&lt;/p>
+&lt;p>但随着数据量的增长，由于生成器表达式不会耗尽缓存内存，同时还允许 Python 在迭代之间复用对象，所以生成器表达式往往能展现出更好的性能。&lt;/p>
+&lt;h2 id="bdfl-声明">BDFL 声明&lt;/h2>
+&lt;p>本 PEP 已被 Py2.4 接受。&lt;a class="link" href="#%e5%90%8d%e8%af%8d%e8%a7%a3%e9%87%8a" >[1]&lt;/a>&lt;/p>
+&lt;h2 id="细节描述">细节描述&lt;/h2>
+&lt;p>（也许对于火星读者来说，下面这些说的可能没那么全面确切，但我相信这些例子已经足够表述我的想法，以便在 c.l.py 进行讨论(译者注：最后半句没看懂)。Python 参考手册应涵盖以下所有语义语法规格。）&lt;/p>
+&lt;ol>
+&lt;li>生成器表达式的语义等同于创建一个匿名生成器函数并调用它。例如：&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">g&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="o">**&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="n">g&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">next&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这等同于：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">def&lt;/span> &lt;span class="nf">__gen&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">bound_exp&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">var1&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">bound_exp&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">exp2&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">var2&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">exp3&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">exp4&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">yield&lt;/span> &lt;span class="n">tgtexp&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">g&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">__gen&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nb">iter&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">exp1&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">__gen&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="2">
+&lt;li>句法要求，生成器表达式需要直接置于一组小括号内，并且两边都不能有逗号。参考 CVS 中的 &lt;code>Grammar/Grammar&lt;/code> 文件，两条规则更改(&lt;em>译者注：语法文件可参照&lt;a class="link" href="https://docs.python.org/3.11/reference/grammar.html" target="_blank" rel="noopener"
+>官方文档&lt;/a>&lt;/em>)：&lt;/li>
+&lt;/ol>
+&lt;ul>
+&lt;li>规则1&lt;/li>
+&lt;/ul>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">atom: &amp;#39;(&amp;#39; [testlist] &amp;#39;)&amp;#39;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>更改为：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">atom: &amp;#39;(&amp;#39; [testlist_gexp] &amp;#39;)&amp;#39;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>其中 testlist_gexp 和 listmaker 基本没差，但 testlist_gexp 只允许在 &lt;code>for ... in&lt;/code> 之间进行单个测试。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">testlist_gexp: test ( gen_for | (&amp;#39;,&amp;#39; test)* [&amp;#39;,&amp;#39;] )
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ul>
+&lt;li>规则2，参数列表的规则需要进行类似修改。&lt;/li>
+&lt;/ul>
+&lt;p>也就意味着，只有一个参数时，生成器表达式小括号可以省略，如：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="o">**&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>但其他情况下，表达式小括号必须填写：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">reduce&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">operator&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">add&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="o">**&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">)))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">g&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="o">**&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>确切的细节已签入 &lt;code>Grammar/Grammar&lt;/code> 1.49版。&lt;/p>
+&lt;ol start="3">
+&lt;li>如果将一个或一组简单变量作为循环变量，那么它(们)不会暴露给外层函数。这样一来不仅有助于开发编码，而且可以让典型用例更加可信赖。在Python的一些未来版本中，列表推导式的迭代变量也将对外层函数代码隐身（并且在Py2.4中，访问迭代变量将会触发Warning）。例如：&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="s1">&amp;#39;hello&amp;#39;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">y&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">list&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="s1">&amp;#39;abc&amp;#39;&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="n">x&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">hello&lt;/span> &lt;span class="c1"># 而不是 c&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="4">
+&lt;li>列表推导式语法将保持不变，例如：&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">S&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="c1"># 这是一个列表推导式&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">[(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">S&lt;/span>&lt;span class="p">)]&lt;/span> &lt;span class="c1"># 这是一个列表，里面包含了一个生成器表达式&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>不幸的是，目前二者有着轻微的句法差异，列表推导式：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="c1"># python3 已不支持该写法&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>是合法的，它等同于：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>但是生成器表达式不支持以上形式：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>非法。&lt;/p>
+&lt;p>之前的列表推导式语法将在 Python 3.0 中不再支持，同时也会在 Python2.4 及以后版本中被标为弃用。&lt;/p>
+&lt;p>为了让 Python3.0 中列表推导式的语义定义等同于 &lt;code>list(&amp;lt;generator expression&amp;gt;)&lt;/code>，上面提到的列表推导式会将其迭代变量“泄漏”到外层环境中的问题，也将在 Python 3.0 中得到修复。同时，在Py2.4 及以后版本中，如果列表推导式的迭代变量和当前上下文中的变量重名时，解释器将触发弃用警告。&lt;/p>
+&lt;h2 id="早期绑定-vs-后期绑定">早期绑定 vs. 后期绑定&lt;/h2>
+&lt;p>待续&lt;/p>
+&lt;h2 id="名词解释">名词解释&lt;/h2>
+&lt;p>[1] BDFL 终身仁慈独裁者（英语：Benevolent Dictator For Life，缩写BDFL）是少数开源软件开发者所拥有的头衔。他们通常是某一项目的创始人，并在该项目社区出现争议时拥有最终的决定权。来自&lt;a class="link" href="https://en.wikipedia.org/wiki/Benevolent_dictator_for_life" target="_blank" rel="noopener"
+>维基百科&lt;/a>&lt;/p></description></item></channel></rss>

@@ -1,0 +1,1199 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>译文 on Aiar's Site</title><link>https://aiar.site/categories/%E8%AF%91%E6%96%87/</link><description>Recent content in 译文 on Aiar's Site</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Tue, 27 Feb 2024 10:16:37 +0800</lastBuildDate><atom:link href="https://aiar.site/categories/%E8%AF%91%E6%96%87/index.xml" rel="self" type="application/rss+xml"/><item><title>[译] Python全局解释器锁(GIL)是什么</title><link>https://aiar.site/post/37e820d83e914ea38386ad1aa323f3c5/</link><pubDate>Tue, 27 Feb 2024 10:16:37 +0800</pubDate><guid>https://aiar.site/post/37e820d83e914ea38386ad1aa323f3c5/</guid><description>&lt;img src="https://s11.ax1x.com/2024/02/28/pFdbDPK.jpg" alt="Featured image of post [译] Python全局解释器锁(GIL)是什么" />&lt;blockquote>
+&lt;p>原文标题：What Is the Python Global Interpreter Lock (GIL)?&lt;br>
+原文作者： Abhinav Ajitsaria&lt;br>
+原文链接：&lt;a class="link" href="https://realpython.com/python-gil/" target="_blank" rel="noopener"
+>https://realpython.com/python-gil/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;p>简单来说，Python 的全局解释器锁(GIL)是一种互斥元(或锁)，同一时刻它只允许一个线程持有对 Python 解释器的控制权。&lt;/p>
+&lt;p>这意味着，在任意一个时间点都只能有一个线程处于执行状态。GIL 带来的影响对于只执行单线程程序的开发者几乎不可见，但是它会成为计算密集型或多线程代码的性能瓶颈。&lt;/p>
+&lt;p>由于即使在拥有多个 CPU 的多线程架构中，GIL 也只允许同一时刻仅有一个线程可执行，因此 GIL 已经臭名昭著了。&lt;/p>
+&lt;p>&lt;strong>在这篇文章中，你将会学习到GIL是如何影响Python程序性能的，以及如何缓解这些影响&lt;/strong>&lt;/p>
+&lt;h2 id="gil-解决了-python-中-的什么问题">GIL 解决了 Python 中 的什么问题&lt;/h2>
+&lt;p>Python 使用引用计数进行内存管理，这意味着每一个在 Python 中创建的对象都有一个引用数变量，用于保持追踪有多少指向该变量的引用。当这个数量变为零时，该变量占用的内存将被释放。（译者注：详见&lt;a class="link" href="https://aiar.site/post/52397c9cfe524c17a37e15b83a022f94/" target="_blank" rel="noopener"
+>CPython 的垃圾回收&lt;/a>）&lt;/p>
+&lt;p>来看一段代码演示下引用计数是如何工作的：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">sys&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">a&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">[]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">b&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">a&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">3&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在上面的例子中，空列表对象 &lt;code>[]&lt;/code> 的引用计数是 3。该对象被 &lt;code>a&lt;/code>、&lt;code>b&lt;/code> 以及传入 &lt;code>sys.getrefcount()&lt;/code> 方法的参数所引用。&lt;/p>
+&lt;p>回到 GIL：&lt;/p>
+&lt;p>问题在于，这个引用计数变量需要避免竞争局面的产生，比如两个线程同时增加或者减少这个值。这种局面一旦出现，轻则造成一部分内存永远不会被释放，重则导致一些还拥有引用的对象的内存被释放。而这可能会导致 Python 程序崩溃，或者其他奇奇怪怪的 bug。&lt;/p>
+&lt;p>比较容易想到的解决方案是，为所有跨线程共享的数据结构加锁，这样可以通过保证数据结构修改的一致性，进而保证引用计数变量的安全性。&lt;/p>
+&lt;p>但是，为每一个对象或每一组对象加锁意味着会有多个锁同时存在，这将造成另外一个问题——死锁(死锁只会发生在同时存在超过一个锁的情况下)。从另一个角度来看，频繁申请和释放锁资源也会降低程序性能。&lt;/p>
+&lt;p>GIL 是添加在解释器自身上的一个简单的锁，它有这样一个规则：执行任何字节码都需要申请解释器锁。这防止了死锁(因为只有一个锁存在)，也不会对性能造成过多的影响。但是它实际上造成任何计算密集型 Python 程序只能是单线程。&lt;/p>
+&lt;p>尽管 GIL 也被其他语言的解释器使用，比如 Ruby，但它并不是这个问题唯一的解决方案。一些语言通过使用引用计数之外的方法(如垃圾回收)来避免 GIL 对线程安全内存管理的依赖。&lt;/p>
+&lt;p>另一方面，这也意味着这些语言必须通过添加其他性能提升功能（如JIT编辑器）来弥补 GIL 单线程性能优势的损失。&lt;/p>
+&lt;h2 id="为什么-gil-能被选为解决方案">为什么 GIL 能被选为解决方案&lt;/h2>
+&lt;p>那么，到底为什么这样一个看起来如此不堪的解决方案会被用在 Python 里呢？这是 Python 开发人员的一记昏招么？用 &lt;a class="link" href="https://youtu.be/KVKufdTphKs?t=12m11s" target="_blank" rel="noopener"
+>Larry Hastings 的话&lt;/a>(译者注：Python的一位核心开发人员和长期使用者)来说，GIL 的设计决策是 Python 在今天如此受欢迎的原因之一。&lt;/p>
+&lt;p>在操作系统还没有线程这个概念时，Python 就已经诞生了。为了让开发更加的快捷，Python 以易用作为开发理念，这也使得越来越多的开发者开始使用 Python。&lt;/p>
+&lt;p>很多扩展都是针对已有的 C 语言库来编写的，这些库都是 Python 所必需的。为了确保更改的一致性，这些 C 扩展需要一个线程安全的内存管理机制，而这正是 GIL 可以提供的。&lt;/p>
+&lt;p>GIL 很容易实现，也很容易添加到 Python 中。由于只需要管理一个锁，它也提升了单线程的程序的性能。&lt;/p>
+&lt;p>非线程安全的 C 库变得更容易集成，而 Python 也因为这些 C 扩展，变得更容易被不同社区采用。&lt;/p>
+&lt;p>如你所见，GIL 是 CPython 的开发人员在 Python 早期面临这个难题时的实用性解决方案。&lt;/p>
+&lt;h2 id="对多线程的-python-程序的影响">对多线程的 Python 程序的影响&lt;/h2>
+&lt;p>对于一个典型的 Python 程序甚至任何一个相关的计算机程序来说，计算密集型和 I/O 密集型在性能要求上是有区别的。&lt;/p>
+&lt;p>计算密集型程序倾向于将 CPU 的运算能力运用到极致，像多维矩阵数学计算、搜索、图像处理等等都属于计算密集型程序。&lt;/p>
+&lt;p>I/O 密集型程序是那些需要花费时间等待输入输出的程序，这些输入输出可能来自于用户、文件、数据库、网络等等。I/O 密集型程序有时不得不消耗大量时间用于等待，直到它们从源端取到所需。这是由于在源端输入输出准备好之前，它可能自己也需要做一些处理，比如，用户在思考到底要输入什么指令，或者数据库在查询时运行自己的进程。&lt;/p>
+&lt;p>来看一个简单的计算密集型程序，它实现了一个记录倒数时长的功能：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># single_threaded.py&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">time&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">COUNT&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">50000000&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">countdown&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">n&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">while&lt;/span> &lt;span class="n">n&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">n&lt;/span> &lt;span class="o">-=&lt;/span> &lt;span class="mi">1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">start&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">countdown&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">end&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s1">&amp;#39;Time taken in seconds -&amp;#39;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">end&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="n">start&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在我这台 4 核的机器上执行它会有这样的输出：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ python single_threaded.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Time taken in seconds - 6.20024037361145
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>现在，简单调整下代码，使用两个线程分开执行一半的倒数任务：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># multi_threaded.py&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">time&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">from&lt;/span> &lt;span class="nn">threading&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="n">Thread&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">COUNT&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">50000000&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">countdown&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">n&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">while&lt;/span> &lt;span class="n">n&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">n&lt;/span> &lt;span class="o">-=&lt;/span> &lt;span class="mi">1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Thread&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">target&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="n">countdown&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">args&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="o">//&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Thread&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">target&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="n">countdown&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">args&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="o">//&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">start&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t1&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">start&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t2&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">start&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t1&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">join&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">t2&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">join&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">end&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s1">&amp;#39;Time taken in seconds -&amp;#39;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">end&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="n">start&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>然后再次执行：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ python multi_threaded.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Time taken in seconds - 6.924342632293701
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如你所见，两个版本的程序基本花费了相同的时间(甚至多线程的还更长些)。在多线程版本中，GIL 阻止了计算密集线程的并行执行。&lt;/p>
+&lt;p>GIL 对于 I/O 密集型的多线程程序在性能方面影响甚微，因为锁在等待 I/O 时是共享的。&lt;/p>
+&lt;p>但是那些纯粹的计算密集型程序，比如一个使用多线程将图片分为几部分的程序，不仅会在锁的影响下变成单线程，而且就像上面的例子那样，你还会看到相对于单线程程序，多线程的执行时间还增加了。&lt;/p>
+&lt;p>这种时间的增加，就是线程锁在获取和释放时的性能开销所致。&lt;/p>
+&lt;h2 id="为什么-gil-还没有被移除">为什么 GIL 还没有被移除&lt;/h2>
+&lt;p>Python 的开发团队收到过数不胜数的关于 GIL 的抱怨，但是像 Python 这样流行的语言，如果做出像移除 GIL 这样重大的改变，势必会造成一系列向下兼容的问题，而这是 Python 团队无法接受的。&lt;/p>
+&lt;p>退一万步说，GIL 完全可以被移除，之前开发人员和研究人员也曾尝试过很多次，但是所有的尝试都破坏了现有的 C 扩展，因为这些扩展都严重依赖 GIL 提供的解决方案。&lt;/p>
+&lt;p>当然，是有一些其他的 GIL 替代方案，但是它们有些会降低单线程应用和 I/O 密集型多线程程序
+的性能，同时这些程序也会变得异常复杂。毕竟，你也不想在 Python 新版本出来后导致已有的程序效率变慢吧？&lt;/p>
+&lt;p>Python 的创始人、BDFL，Guido van Rossum，于 2007 年九月在社区发布的&lt;a class="link" href="https://www.artima.com/weblogs/viewpost.jsp?thread=214235" target="_blank" rel="noopener"
+>《移除GIL并不容易》&lt;/a>一文中做出了一些回应：&lt;/p>
+&lt;blockquote>
+&lt;p>“I’d welcome a set of patches into Py3k only if the performance for a single-threaded program (and for a multi-threaded but I/O-bound program) does not decrease”
+“只要单线程程序(以及多线程的 I/O 密集型程序)的效率不会下降，我是非常欢迎为 Py3k 附加一些补丁的”&lt;/p>
+&lt;/blockquote>
+&lt;p>但自那以后，任何一次尝试都没有满足这个条件。&lt;/p>
+&lt;h2 id="为什么-python-3-也没有移除它">为什么 Python 3 也没有移除它&lt;/h2>
+&lt;p>Python 3 确实有机会从头开始开发许多特性，但在这个过程中也破坏了一些现有的 C 扩展，这些扩展需要更新和移植才能与 Python 3 一起工作。这也是在 Python 3 的早期版本社区采用较慢的主要原因。&lt;/p>
+&lt;p>但是为啥 GIL 还是没有被移除呢？&lt;/p>
+&lt;p>移除 GIL 就会导致新的 Python 3 版本在单线程程序的性能方面相比于 Python 2 竟然会更慢，可想而知结果会是啥。我们确实无法否认 GIL 在单线程程序性能上的优势，因此结果就是 Python 3 中的 GIL 仍然存在。&lt;/p>
+&lt;p>但是，Python 3 也确实对现有的 GIL 进行了重大的改进——&lt;/p>
+&lt;p>我们之前讨论了 GIL 对于纯计算密集型或纯 I/O 密集型多线程程序的影响，但是，对于那些一部分线程计算密集，另一部分线程 I/O 密集的程序 GIL 带来的影响又会是怎样呢？&lt;/p>
+&lt;p>在这样的程序中，Python 的 GIL 会饿死 I/O 密集型的线程，不给它们从计算密集型线程这种获取 GIL 的机会。&lt;/p>
+&lt;p>首先我们需要知道 Python 有这样一个内置的机制，当某线程连续使用 GIL 到达一个 &lt;strong>固定的时长&lt;/strong> 后，机制会强制让线程释放 GIL，但如果没有别的线程申请 GIL，则该线程就会继续使用 GIL。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">sys&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="c1"># The interval is set to 100 instructions:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getcheckinterval&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">100&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>但这个机制的问题在于，对于大部分的计算密集型线程而言，它们会抢在别的线程能申请之前重复申请 GIL。这项研究由 David Beazley 整理，可以在 &lt;a class="link" href="https://www.dabeaz.com/blog/2010/01/python-gil-visualized.html" target="_blank" rel="noopener"
+>这里&lt;/a> 找到可视化的成果。&lt;/p>
+&lt;p>这个问题于 2009 年由 Antoine Pitrou 在 Python 3.2 中修复，他添加了一种机制用来监测其他线程请求获取 GIL 但被丢弃的次数，并且在其他线程有机会运行之前，不再允许当前线程重复获取 GIL。&lt;/p>
+&lt;h2 id="如何来处理-python-的-gil">如何来处理 Python 的 GIL&lt;/h2>
+&lt;p>如果 GIL 正在给你添堵，可以尝试用这些方法解决：&lt;/p>
+&lt;p>&lt;strong>多进程 vs 多线程：&lt;/strong> 最受欢迎的方式是使用多进程代替多线程。每个 Python 进程都有它自己的解释器和内存空间，所以 GIL 也就不是问题了。Python内置的 &lt;a class="link" href="https://docs.python.org/3/library/multiprocessing.html" target="_blank" rel="noopener"
+>multiprocessing&lt;/a> 模块(译者注：原始链接是Python2的，这里的链接换成了最新的Python版本的)可以帮我们很容易的创建进程，就像这样：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="kn">from&lt;/span> &lt;span class="nn">multiprocessing&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="n">Pool&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kn">import&lt;/span> &lt;span class="nn">time&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">COUNT&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">50000000&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">countdown&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">n&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">while&lt;/span> &lt;span class="n">n&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">n&lt;/span> &lt;span class="o">-=&lt;/span> &lt;span class="mi">1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">if&lt;/span> &lt;span class="vm">__name__&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="s1">&amp;#39;__main__&amp;#39;&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">pool&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Pool&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">processes&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">start&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">r1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">pool&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">apply_async&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">countdown&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="o">//&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">])&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">r2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">pool&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">apply_async&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">countdown&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">COUNT&lt;/span>&lt;span class="o">//&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">])&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">pool&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">close&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">pool&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">join&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">end&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">time&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">time&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s1">&amp;#39;Time taken in seconds -&amp;#39;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">end&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="n">start&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在我的机器上执行会有这样的输出：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ python multiprocess.py
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">Time taken in seconds - 4.060242414474487
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>相较于多线程版本，这样能有一个不错的性能提升，还可以吧~&lt;/p>
+&lt;p>我们看到，时间花费并没有下降为原本的一半，这是因为进程管理也有它自己的花费。多进程比多线程更重，所以要考虑清楚，这可能会成为新的瓶颈。&lt;/p>
+&lt;p>&lt;strong>使用其他解释器：&lt;/strong> Python 有很多解释器的实现版本，最受欢迎的有 CPython、Jython、IronPython 以及 PyPy，它们分别是由 C、Java、C# 和 Python 实现的版本。GIL 仅存在于最初的实现版本 CPython 中。如果你的程序以及它依赖的一些库对于一种或多种解释器都适用，那么你也可以尝试使用别的解释器。&lt;/p>
+&lt;p>&lt;strong>敬候佳音：&lt;/strong> 尽管有很多 Python 的使用者在利用 GIL 在单线程程序上的性能优势，但是多线程开发人员也不用太过发愁，因为 Python 社区中一些最聪明的人正致力于将 GIL 从 CPython 中移除，比如 &lt;a class="link" href="https://github.com/larryhastings/gilectomy" target="_blank" rel="noopener"
+>Gilectomy&lt;/a> 这个尝试。(译者注：可惜这个尝试已经有8年没有更新了，最后截至到Python3.6版本)&lt;/p>
+&lt;p>Python 的 GIL 经常被看作是一个神秘而又困难的主题，但作为 Pythonista，通常你只会在写 C 扩展或者计算密集型程序时，才会被它影响。&lt;/p>
+&lt;p>因此，本文为你介绍了 GIL 是什么以及在程序中如何处理它。如果你想继续了解 GIL 底层工作原理，建议观看 David Beazley 的&lt;a class="link" href="https://youtu.be/Obt-vMVdM8s" target="_blank" rel="noopener"
+>《理解 Python GIL》&lt;/a>这场演讲。&lt;/p></description></item><item><title>[译] CPython垃圾回收器的设计</title><link>https://aiar.site/post/52397c9cfe524c17a37e15b83a022f94/</link><pubDate>Fri, 12 Jan 2024 14:19:45 +0800</pubDate><guid>https://aiar.site/post/52397c9cfe524c17a37e15b83a022f94/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/16/pFFyS10.png" alt="Featured image of post [译] CPython垃圾回收器的设计" />&lt;blockquote>
+&lt;p>原文标题：Garbage collector design&lt;br>
+原文作者：Pablo Galindo Salgado&lt;br>
+原文链接：&lt;a class="link" href="https://devguide.python.org/internals/garbage-collector/" target="_blank" rel="noopener"
+>https://devguide.python.org/internals/garbage-collector/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="摘要">摘要&lt;/h2>
+&lt;p>引用计数（reference counting）是 CPython 中最主要的垃圾回收算法。它的主要思想是，CPython 会统计每个对象有多少不同的“地方”对该对象有引用。这个“地方”可能是其他对象，可能是全局（或静态）的 C 变量，也可能一些 C 方法中的本地变量。当一个对象的引用数降为 &lt;code>0&lt;/code> 时，这个对象就会被回收。如果其中包含一些对其他对象的引用，那么这些“其他对象”的引用数也将减少，若恰好导致某些对象引用数也降为0，那么它们也会被依次回收。可以使用 &lt;code>sys.getrefcount&lt;/code> 方法检查对象的引用数，需要注意的一点是，使用这个方法返回的值总会比 &lt;code>1&lt;/code> 大，因为在调用这个方法时该方法对于该对象产生一个引用：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">object&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">2&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">y&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">x&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">3&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">y&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">2&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>引用计数方案的主要问题在于，它无法处理循环引用。考虑下面的代码：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">container&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">[]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">container&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">append&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">container&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">sys&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">getrefcount&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">container&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">3&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">container&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在这个例子中，&lt;code>container&lt;/code> 存着一个指向自己的引用，因此，即使我们移除了对它的引用（变量“container”），它的引用数也不会变成零，因为在它内部仍有一个引用。因此，仅靠简单的引用计数它将永远无法被清除。正因如此，当一些对象变得无法到达（unreachable）时，我们需要一些额外的机制来清除这些对象间的循环引用。这就是循环式垃圾回收器，通常也叫垃圾回收器（GC）。当然，引用计数也是垃圾回收的一种实现形式。&lt;/p>
+&lt;h2 id="内存布局和对象结构">内存布局和对象结构&lt;/h2>
+&lt;p>通常情况下，支持 Python 对象的 C 结构大致如此：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-text" data-lang="text">&lt;span class="line">&lt;span class="cl">object -----&amp;gt; +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ \
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | ob_refcnt | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ | PyObject_HEAD
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | *ob_type | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ /
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | ... |
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>为了支持 GC，对象的内存布局有了一些更改，它将在通用布局之前存储一些额外的信息：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-text" data-lang="text">&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ \
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | *_gc_next | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ | PyGC_Head
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | *_gc_prev | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">object -----&amp;gt; +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ /
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | ob_refcnt | \
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ | PyObject_HEAD
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | *ob_type | |
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+ /
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> | ... |
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在这种方式下，这个 C 结构既可以被当作一个普通 Python 对象，也可以在垃圾回收机制触发时，通过对该结构进行简单的类型转换，来访问其前一个内存域来获取垃圾回收相关的额外信息：&lt;br>
+&lt;code>((PyGC_Head *)(the_object)-1)&lt;/code>。&lt;/p>
+&lt;p>正如后文 &lt;a class="link" href="#%e4%bc%98%e5%8c%96%e5%a4%8d%e7%94%a8%e5%9f%9f%e4%bb%a5%e8%8a%82%e7%9c%81%e5%86%85%e5%ad%98" >优化：复用域以节省内存&lt;/a> 部分中解释的那样，这两个附加的内存域通常用来维持一些双向链表，这些链表中存储的对象即是 GC 跟踪着的所有对象（这些链表就是 GC 的各个 &lt;code>代&lt;/code>，更多关于详见本文 &lt;a class="link" href="#%e4%bc%98%e5%8c%96%e4%bb%a3" >优化：代&lt;/a> 部分）。当然，在 GC 做内存优化时，也不是总会需要完整的双向链表，这时没用到的部分就可以被重用来实现其他目的。&lt;/p>
+&lt;p>使用双向链表，是因为它能高效地支持那些 GC 使用最频繁的操作。通常情况下，被 GC 跟踪的对象们会被根据从垃圾回收机制中存活下来的频率收集为多个不相交的集合，收集成的每个集合都被存入独立的双向链表，一个集合被称为一“代”（generation）。在收集期间，每一个“代”又被进一步分为可到达（reachable）和不可到达（unreachable）。双向链表支持内部对象的移动、新增、彻底移除（被 GC 跟踪的对象在 GC 不运行时通常被引用计数回收）以及链表间的合并，所有的这些操作仅仅只需要更新一下几个指针就能完成。需要主义的是，双向链表还支持在其中增加或删除元素时对分区进行迭代，这也是 GC 在运行时经常需要做的。&lt;/p>
+&lt;p>GC 提供特定 API 以便对特定对象进行分配、解除分配、初始化、跟踪和解除跟踪。详见 &lt;a class="link" href="https://docs.python.org/3.8/c-api/gcsupport.html" target="_blank" rel="noopener"
+>Garbage Collector C API documentation&lt;/a> 这篇文档。&lt;/p>
+&lt;p>除了上述的对象结构之外，用于支持 GC 对象的 type 对象必须在其 &lt;code>tp_flags&lt;/code> 属性中包含 &lt;code>Py_TPFLAGS_HAVE_GC&lt;/code>，并提供 &lt;code>tp_traverse&lt;/code> 函数的实现。除非可以证明对象不能仅与自身类型的对象形成引用循环，或者除非类型是不可变的，否则还需要提供 &lt;code>tp_clear&lt;/code> 函数的实现。&lt;/p>
+&lt;h2 id="识别循环引用">识别循环引用&lt;/h2>
+&lt;p>CPython 中用来识别引用循环的算法在 &lt;code>gc&lt;/code> 模块中有实现。垃圾回收器 &lt;strong>仅专注于&lt;/strong> 清理容器对象（可以容纳一个或多个对象引用的对象）。它们可以是数组、字典、列表、自定义类的实例和拓展模块中的类等。可能有人会觉得循环并不常见，但事实是许多解释器用到的内部引用把循环建的到处都是。比较经典的例子有：&lt;/p>
+&lt;ul>
+&lt;li>Exception 包含 traceback 对象，而 traceback 包含了一个 Exception 自身也在其中的内容列表&lt;/li>
+&lt;li>模块级函数引用了该模块的字典用来解析全局变量，而这个字典又包含了该模块级函数的条目&lt;/li>
+&lt;li>实例有对它所属类的引用，所属类又有对其所在模块的引用。同时所在模块又有对它内部所有事物（也可能有其他import进来的模块）的引用，而这会追溯回最开始的那个实例&lt;/li>
+&lt;li>当表示类似图这样的数据结构时，它的内部节点能链接到自身是再正常不过的一件事&lt;/li>
+&lt;/ul>
+&lt;p>当对象变得不可到达时，要想正确的处理这些对象，首先需要做的就是识别出它们。在循环识别函数的内部有两个双向链表，其中一个包含了所有可以扫描到的对象，另一个包含所有“暂定为”不可到达的对象。&lt;/p>
+&lt;p>为了更好的理解这个算法，我们以一个循环链表为例，它有一个有变量 &lt;code>A&lt;/code> 引用的链接，还有一个完全不可到达的自引用对象：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">gc&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">class&lt;/span> &lt;span class="nc">Link&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">def&lt;/span> &lt;span class="fm">__init__&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="bp">self&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">next_link&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="kc">None&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="bp">self&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">next_link&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">next_link&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_3&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Link&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Link&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">link_3&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Link&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">link_2&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_3&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">next_link&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">link_1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">A&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">link_1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">link_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">link_2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">link_3&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_4&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Link&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">link_4&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">next_link&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">link_4&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">link_4&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Collect the unreachable Link object (and its .__dict__ dict).&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">collect&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">2&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>GC 启动时，会将它所有想扫描的容器对象放入第一个链表，目的是移动所有无法到达对象。由于大部分对象都是可到达的，所以移动不可到达对象显然更加高效，因为这样能更新更少的指针以达到相同的目的。&lt;/p>
+&lt;p>每当算法启动时，每个支持垃圾回收的对象都会初始化一个额外的引用计数域，用来存放它被引用的数量（图中的 &lt;code>gc_ref&lt;/code> 字段）。这是因为算法需要通过修改引用计数来进行计算，又保证了解释器不用调整对象实际的引用计数。&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-1-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-1-new-page"
+>&lt;/p>
+&lt;p>然后，GC 会遍历第一个列表中的所有容器，并将容器引用的任何其他对象的 &lt;code>gc_ref&lt;/code> 字段数值减一。可以利用容器类中的 &lt;code>tp_traverse&lt;/code> 槽（由 C API 实现或者由超类继承）来获取每个容器引用的对象。在扫描完所有对象之后，只有那些引用来自“要扫描的对象”列表之外的对象，其 &lt;code>gc_ref&lt;/code> 字段值才会 &lt;code>&amp;gt; 0&lt;/code>&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-2-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-2-new-page"
+>&lt;/p>
+&lt;p>需要注意的是，即便某对象的 &lt;code>gc_ref == 0&lt;/code>，也不一定意味着它是不可到达的。这是因为可能会有外部的另一个可访问的对象（&lt;code>gc_ref &amp;gt; 0&lt;/code>）对它仍有引用。比如，在我们例子中的 &lt;code>link_2&lt;/code> 对象在扫描结束后 &lt;code>gc_ref == 0&lt;/code>，但是它仍然在被 &lt;code>link_1&lt;/code> 引用，而 &lt;code>link_1&lt;/code> 是一个外部可到达的对象。为了获得一个由真正无法到达对象组成的集合，垃圾回收器会使用 &lt;code>tp_traverse&lt;/code> 槽再次扫描容器对象，但这次会使用不同的 traverse 方法，将 &lt;code>gc_ref == 0&lt;/code> 的对象标记为“暂时不可到达”，然后再将它们移动到暂时不可到达列表中。下图描绘了这样一个状态，GC 已经处理了 &lt;code>link_3&lt;/code> 和 &lt;code>link_4&lt;/code> 对象，但还没有处理 &lt;code>link_1&lt;/code> 和 &lt;code>link_2&lt;/code> 对象。&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-3-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-3-new-page"
+>&lt;/p>
+&lt;p>然后，GC 会接着扫描 &lt;code>link_1&lt;/code> 对象，由于 &lt;code>gc_ref == 1&lt;/code> 代表它一定可到达（并且它已经在即将成为可访问列表的列表中了），所以 GC 不会做任何事。&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-4-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-4-new-page"
+>&lt;/p>
+&lt;p>当 GC 遇到一个可到达对象（&lt;code>gc_ref &amp;gt; 0&lt;/code>）时，它将使用 &lt;code>tp_traverse&lt;/code> 槽遍历该对象的引用，获取该对象所有可到达的对象，再将它们移动到可到达对象列表的末尾（本例中也就是它们初始的位置），最后将它们的 &lt;code>gc_ref&lt;/code> 字段值设置为 &lt;code>1&lt;/code>。这就是下图中 &lt;code>link_2&lt;/code> 和 &lt;code>link_3&lt;/code> 的情况，因为它们可以通过 &lt;code>link_1&lt;/code> 到达。从上一张图的状态到检查完 &lt;code>link_1&lt;/code> 引用的对象之后，GC 知道了 &lt;code>link_3&lt;/code> 是可到达的，因此 &lt;code>link_3&lt;/code> 被移动回了初始的列表，并且它的 &lt;code>gc_ref&lt;/code> 值也被设置为了 &lt;code>1&lt;/code>，以便当 GC 再次访问它时能知道它是可到达的。为了避免访问一个对象两遍的问题，GC 会将所有它已经访问过一次的对象做出标记（通过取消 &lt;code>PREV_MARK_COLLECTING&lt;/code> 标志），这样，如果一个已经被处理过的对象也被其他对象引用，GC 就不会对它进行二次处理。&lt;/p>
+&lt;p>&lt;img src="https://devguide.python.org/_images/python-cyclic-gc-5-new-page.png"
+loading="lazy"
+alt="python-cyclic-gc-5-new-page"
+>&lt;/p>
+&lt;p>需要注意的是，如果一个对象被标记为“暂时不可达”，后来又被移回可达列表，那么垃圾收集器将再次访问该对象，因为现在该对象的所有引用也都需要处理了。这个过程实际上是对对象图的广度优先搜索。一旦扫描了所有对象，GC 就知道暂定不可达列表中的所有容器对象确实不可达，因此它们就可以被垃圾回收掉了。&lt;/p>
+&lt;p>从实际意义上讲，需要注意的是，这些都是不需要递归的，也不会以任何其他方式需要额外线性增长的内存，不管是对象数量、指针数量或指针链长度都不会影响。除了满足 C 需求的 O(1) 存储空间外，对象本身包含了 GC 算法所需的所有存储空间。&lt;/p>
+&lt;h3 id="为什么移动不可到达对象会更好">为什么移动不可到达对象会更好&lt;/h3>
+&lt;p>在假定大多数对象都是可以到达的情况下，移动不可到达对象听起来还是挺符合逻辑的。但仔细想想看，这么做值得的原因好像也并不太明显。&lt;/p>
+&lt;p>假设我们按顺序创建了 A、B、C 三个对象，那它们在新生代（young generation）中也会以同样的顺序出现。如果 C 指向 B，B 指向 A，然后 C 是外部可到达对象，那么经过算法第一步调整后，A、B、C 的引用计数会变为 0、0、1，因为唯一一个外部可到达的对象是 C。&lt;/p>
+&lt;p>然后算法的下一步扫描到 A，A 被移动到暂时不可达列表，同样的事也会发生在 B 身上。接着，当算法扫描到 C 时，B 又被移回了可到达列表。最后，B 又再次被扫描，A 也被移回到了可到达列表。&lt;/p>
+&lt;p>所以，虽然看起来结果和最初时完全没有差别，但事实上可到达对象 B 和 A 分别被移动了两次。那为什么这还能算是一次胜利呢？移动可到达对象最直接的算法是将 A、B、C 各移动一次。关键在于，反复横跳的方式把对象的顺序变为 C、B、A - 正好和原始顺序相反。而且在以后的扫描中，它们都不会被移动。由于大部分对象都不是循环的，这可以在无限数量的后续集合中节省无限数量的移动。唯一可能会增加成本的，是第一次的扫描链。&lt;/p>
+&lt;h2 id="销毁不可到达对象">销毁不可到达对象&lt;/h2>
+&lt;p>一旦 GC 获取到一个确定不可访问对象的列表，它就会启动一个非常脆弱的进程，其目标是完全销毁列表中的对象。这个过程大致来说是按照以下顺序进行：&lt;/p>
+&lt;ol>
+&lt;li>处理和清理弱引用（如果有的话）。如果不可达对象集合中的一个元素即将被销毁，但它有些带回调的弱引用，那么这些回调需要被执行。这个过程会非常脆弱，因为任何错误都可能会导致那些处于相悖状态的对象被回调中调用的某些 Python 方法复活或重新可到达。另外，同属于不可到达集合中的弱引用（对象和它的弱引用在同一个不可达的循环中）则需要立即清除，而不需要执行回调。否则它将会在稍后 &lt;code>tp_clear&lt;/code> 槽被调用时被触发，造成严重的后果。忽略弱引用的回调没啥大问题，因为对象和弱引用都将会消失，所以说让弱引用先走一步也是合理的。&lt;/li>
+&lt;li>如果对象有过时的终结器（&lt;code>tp_del&lt;/code> 槽），则需要将它们移到 &lt;code>gc.garbage&lt;/code> 列表中。&lt;/li>
+&lt;li>调用终结器（&lt;code>tp_finalize&lt;/code> 槽），并将对象标记为已终结，以免因为对象复活或其他终结器先删除该对象时被调用两次。&lt;/li>
+&lt;li>处理复活的对象。如果某些对象已经复活，GC 将通过再次运行检测算法找到仍然无法访问的新对象子集，并继续处理它们。&lt;/li>
+&lt;li>调用每个对象的 &lt;code>tp_clear&lt;/code> 槽，这样所有内部链接都将被摧毁，引用数降为0，最后触发所有不可达对象的销毁。&lt;/li>
+&lt;/ol>
+&lt;h2 id="优化代">优化：代&lt;/h2>
+&lt;p>为了限制每次垃圾回收所花费的时间，GC 使用了一种流行的优化：代。这个概念背后的主要思想是，假设大多数对象的生命周期很短，因此可以在创建后不久就被回收。事实证明，这与很多 Python 程序的现实非常接近，因为许多临时对象的创建和销毁都非常快。对象越老，它就越不可能变得不可访问。利用这一事实，所有的容器对象会被划分为三个空间/代。每个新创建的对象都属于新生代（generation 0）。之前提到的算法将只对特定一代的对象执行，假设 A 对象处在初生代，如果它在这次回收扫描中幸存下来，那么它将被移动到下一代中生代（generation 1），在中生代它被调查的频率将被降低。如果处于中生代的 A 对象在另一轮的 GC 中又幸存了下来，那么它将被移动到最后一代老生代（generation 2），在那里它的被调查频率将被降到最低。&lt;/p>
+&lt;p>为了决定垃圾回收运行的时间，收集器会跟踪自上一次收集以来对象分配和回收的数量。当分配的数量减去回收的数量超过 &lt;code>threshold_0&lt;/code> 时，将启动回收。最初只检查初生代（generation 0）。如果自检查中生代（generation 1）以来，检查初生代的次数超过了 &lt;code>threshold_1&lt;/code> 次，则也检查中生代。对于老生代（generation 2），情况有些复杂；详见下文 &lt;a class="link" href="#%e5%9b%9e%e6%94%b6%e8%80%81%e7%94%9f%e4%bb%a3" >回收老生代&lt;/a>。刚刚提到的那些阈值可以使用 &lt;code>gc.get_threshold()&lt;/code> 函数进行检查：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">gc&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">get_threshold&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">(&lt;/span>&lt;span class="mi">700&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">10&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">10&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这些代的内容可以使用 &lt;code>gc.get_objects(generation=NUM)&lt;/code> 方法来检查，同时可以通过调用 &lt;code>gc.collect(genereation=NUM)&lt;/code> 在特定的代中触发收集。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="kn">import&lt;/span> &lt;span class="nn">gc&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">class&lt;/span> &lt;span class="nc">MyObj&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">pass&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Move everything to the last generation so it&amp;#39;s easier to inspect&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># the younger generations.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">collect&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">0&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Create a reference cycle.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">MyObj&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">self&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">x&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Initially the object is in the youngest generation.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">get_objects&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">generation&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[&lt;/span>&lt;span class="o">...&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">__main__&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">MyObj&lt;/span> &lt;span class="nb">object&lt;/span> &lt;span class="n">at&lt;/span> &lt;span class="mh">0x7fbcc12a3400&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">...&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># After a collection of the youngest generation the object&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># moves to the next generation.&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">collect&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">generation&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="mi">0&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">get_objects&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">generation&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">get_objects&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">generation&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[&lt;/span>&lt;span class="o">...&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">__main__&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">MyObj&lt;/span> &lt;span class="nb">object&lt;/span> &lt;span class="n">at&lt;/span> &lt;span class="mh">0x7fbcc12a3400&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">...&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="回收老生代">回收老生代&lt;/h3>
+&lt;p>除了各种可配置的阈值之外，只有当 &lt;code>long_lived_pending / long_lived_total&lt;/code> 的比值高于给定值（固定值为25%）时，GC 才会触发老生代（generation 2）的完整回收流程。原因是，虽然“非完整回收”（即新生代和中生代的收集）需要检查的对象数量大致相同（由上述阈值决定），但完整回收的成本与长寿命对象的总数成正比，而长寿命对象几乎是无限的。确实，有人指出，每次创建 &amp;lt;常量&amp;gt; 对象时都需要进行完整收集，这会导致工作负载的性能急剧下降，因为这些工作负载包括创建和存储大量的长寿命对象（例如，构建一个大的 GC 跟踪列表将显示平方级性能，而不是预期的线性性能）。相反，使用上述比值会在对象总数中产生平摊的线性性能（其效果可以总结为：“随着对象数量的增长，每次完整的垃圾回收的成本越来越高，但我们做的垃圾收集却越来越少”）。&lt;/p>
+&lt;h2 id="优化复用域以节省内存">优化：复用域以节省内存&lt;/h2>
+&lt;p>为了节省内存，支持 GC 的每个对象中的两个链表指针会被重用于多个目的。这也是一种常见的优化，被称为“胖指针”或“标记指针”：携带额外数据的指针。“折叠”到指针中，意味着内联存储在表示地址的数据中，利用内存寻址的某些属性。（译者注：这段没看懂。。）大多数体系结构会将数据的类型与数据的大小对齐（通常是一个字或多个字），这种差异使得指针的一些最低有效位未被使用，这些位就可以用来标记或保存其他信息 - 最常见的是作为位字段（每个位都是一个单独的标记）- 只要使用指针的代码在访问内存之前屏蔽掉这些位。例如，在32位体系结构上（地址和字长），一个字是32位 = 4字节，因此字对齐的地址总是4的倍数，也就是说二进制串都会以00结束，最后两位就可以别做他用了；而在64位体系结构中，一个字是64位 = 8字节，所以对齐的地址总是8的倍数，二进制串都会以000结束，就会有三位可以使用。&lt;/p>
+&lt;p>CPython GC 使用两个胖指针，它们对应于上文 &lt;a class="link" href="#%e5%86%85%e5%ad%98%e5%b8%83%e5%b1%80%e5%92%8c%e5%af%b9%e8%b1%a1%e7%bb%93%e6%9e%84" >内存布局和对象结构&lt;/a> 一节中讨论的 &lt;code>PyGC_Head&lt;/code> 的额外字段域：&lt;/p>
+&lt;blockquote>
+&lt;p>警告
+由于存在额外的信息， “标记”或“胖”指针不能直接解引用，在获取真正的内存地址之前，必须剥离额外信息。对于直接操作链表的函数，需要特别小心，因为这些函数通常假定链表中的指针初一一致状态。&lt;/p>
+&lt;/blockquote>
+&lt;ul>
+&lt;li>&lt;code>_gc_prev&lt;/code> 字段通常作为“前一个”指针来维护双链表，但其最低的两位用于保存标记 &lt;code>PREV_MASK_COLLECTING&lt;/code> 和 &lt;code>_PyGC_PREV_MASK_FINALIZE&lt;/code>。在每次回收间隙，唯一可以出现的标志是 &lt;code>_PyGC_PREV_MASK_FINALIZE&lt;/code>，他表示对象是否已经被终结。在回收期间，除了这两个标志之外，&lt;code>_gc_prev&lt;/code> 还临时用于存储引用计数（&lt;code>gc_ref&lt;/code>）的副本，届时 GC 链表会变成单链表，直到 &lt;code>_gc_prev&lt;/code> 被恢复。&lt;/li>
+&lt;li>&lt;code>_gc_next&lt;/code> 字段被用作“下一个”指针来维护双链表，但在收集期间，它的最低位用于保存标记 &lt;code>NEXT_MASK_UNREACHABLE&lt;/code>，该标记表示在周期检测算法期间对象是否暂时不可达。这是仅用双链表实现分区（译者注：分为可到达和暂时不可达列表，详见上文&lt;a class="link" href="#%e8%af%86%e5%88%ab%e5%be%aa%e7%8e%af%e5%bc%95%e7%94%a8" >识别循环引用&lt;/a>）的一个缺点：虽然大多数操作的耗时都是恒定的，但是没有有效的方法来确定对象当前在哪个分区中。所以，当需要时，会使用特别的技巧（如 &lt;code>NEXT_MASK_UNREACHABLE&lt;/code>）。&lt;/li>
+&lt;/ul>
+&lt;h2 id="优化延迟追踪容器">优化：延迟追踪容器&lt;/h2>
+&lt;p>某些类型的容器无法产生引用循环，因此不需要由垃圾回收器跟踪。取消对这些对象的跟踪可以减少垃圾回收的成本，但是确定哪些对象可以不跟踪并不是那么容易，这就需要权衡二者利弊。解除对容器对象追踪的时刻，有两种可能的策略：&lt;/p>
+&lt;ol>
+&lt;li>在容器对象被创建时&lt;/li>
+&lt;li>在容器对象被垃圾回收检查时&lt;/li>
+&lt;/ol>
+&lt;p>一般来说，不跟踪原子类型的实例，而跟踪非原子类型的实例（容器、用户定义对象等）。当然，可以提供一些特定类型的优化，来压缩简单实例在垃圾回收时占用的空间。以下是受益于延迟追踪的原生类型示例：&lt;/p>
+&lt;ul>
+&lt;li>只包含不可变对象（整数、字符串等，以及递归包含不可变对象的元组）的元组不需要追踪。解释器创建了大量的元组，其中许多元组直到垃圾回收时才会存在。因此，符合这样条件元组，不值得在对象创建时取消追踪。也就是说，除了空元组之外，所有的元组在创建时都会被追踪，后面在垃圾回收期间，再来确定是否可以不追踪幸存的元组（译者注：额，感觉有点车轱辘话）。如果元组的所有内容都没有被追踪，那么该元组可以不被追踪。在每个垃圾回收周期中，检查元组都会被检查是否被追踪。取消元组的追踪可能需要一个周期以上。&lt;/li>
+&lt;li>只包含不可变对象的字典也不需要被追踪。字典在创建时，不会被追踪。如果有被追踪项被插入到字典中，不管其作为键亦或是值，都会将该字典设置为需要追踪。在完整的垃圾回收期间（所有代），收集器将取消跟踪所有内容都未被追踪的字典。&lt;/li>
+&lt;/ul>
+&lt;p>垃圾回收器模块提供了 Python 函数 &lt;code>is_tracked(obj)&lt;/code>，他返回对象当前的跟踪状态。当然，后续的垃圾回收可能会改变这个状态。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">False&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s2">&amp;#34;a&amp;#34;&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">False&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">([])&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">True&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">({})&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">False&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">({&lt;/span>&lt;span class="s2">&amp;#34;a&amp;#34;&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">})&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">False&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">gc&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">is_tracked&lt;/span>&lt;span class="p">({&lt;/span>&lt;span class="s2">&amp;#34;a&amp;#34;&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="p">[]})&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kc">True&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div></description></item><item><title>[译] Python中的__doc__是啥</title><link>https://aiar.site/post/fc3072369de748799c9cad55cb6eda25/</link><pubDate>Mon, 30 Jan 2023 09:56:47 +0800</pubDate><guid>https://aiar.site/post/fc3072369de748799c9cad55cb6eda25/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShAdH.png" alt="Featured image of post [译] Python中的__doc__是啥" />&lt;blockquote>
+&lt;p>原文标题：What is &lt;strong>doc&lt;/strong> in Python?&lt;br>
+原文作者：&lt;a class="link" href="https://blog.finxter.com/author/xcentpy_cfsh849y/" target="_blank" rel="noopener"
+>Chris&lt;/a>&lt;br>
+原文链接：&lt;a class="link" href="https://blog.finxter.com/what-is-__-doc-__-in-python/" target="_blank" rel="noopener"
+>https://blog.finxter.com/what-is-&lt;strong>-doc-&lt;/strong>-in-python/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="what">What&lt;/h2>
+&lt;p>Python 的每个对象中都有一个叫做 &lt;code>__doc__&lt;/code> 的属性，用来存放该对象的文档信息。比如对于 &lt;code>Dog&lt;/code> 类，可以直接调用 &lt;code>Dog.__doc__&lt;/code> 来获取它的文档字符串(docstring)信息。&lt;/p>
+&lt;p>可以使用三个引号将字符串包围的方式来定义文档字符串，就像例子中这样：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="k">class&lt;/span> &lt;span class="nc">Dog&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="s2">&amp;#34;&amp;#34;&amp;#34;你最好的朋友。&amp;#34;&amp;#34;&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">def&lt;/span> &lt;span class="nf">do_nothing&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="bp">self&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">pass&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Dog&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="vm">__doc__&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># 你最好的朋友。&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>Python 中万物皆对象，函数也不例外，所以也可以在函数中定义文档字符串：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">bark&lt;/span>&lt;span class="p">():&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="s2">&amp;#34;&amp;#34;&amp;#34;汪汪汪&amp;#34;&amp;#34;&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">pass&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">bark&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="vm">__doc__&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># 汪汪汪&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>注意，如果没有定义文档字符串，那么调用 &lt;code>xxx.__doc__&lt;/code> 时将返回 &lt;code>None&lt;/code>。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="k">def&lt;/span> &lt;span class="nf">bark&lt;/span>&lt;span class="p">():&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">pass&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">bark&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="vm">__doc__&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># None&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="why">Why&lt;/h2>
+&lt;p>为什么要使用文档字符串(docstring)呢？&lt;/p>
+&lt;p>在代码中定义文档字符串最大的好处在于，可以以编程的方式创建漂亮的文档了。借助类似 &lt;a class="link" href="https://www.sphinx-doc.org/en/master/examples.html" target="_blank" rel="noopener"
+>Sphinx&lt;/a> 这样的工具，为项目创建类似下图这样的文档将变得非常容易，只需要在代码中定义文档字符串，即为 &lt;code>__doc__&lt;/code> 赋值。&lt;/p>
+&lt;p>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShMy8.png"
+loading="lazy"
+alt="Sphinx-doc"
+>&lt;/p>
+&lt;h2 id="practice">Practice&lt;/h2>
+&lt;p>&lt;a class="link" href="https://www.python.org/dev/peps/pep-0257/" target="_blank" rel="noopener"
+>官方 PEP 标准&lt;/a>中定义了很多文档字符串优雅的实践，它们被称为 &lt;em>文档字符串规范(Docstring Conventions)&lt;/em>。定义项目中的文档字符串时，请尽可能按照这些规范。下面将列举出规范中最重要的7条：&lt;/p>
+&lt;ol>
+&lt;li>所有的模块(module)，函数(function)，方法(method)和类(class)都应该拥有文档字符串&lt;/li>
+&lt;li>为了一致性原则，请使用 &lt;code>&amp;quot;&amp;quot;&amp;quot;三个双引号&amp;quot;&amp;quot;&amp;quot;&lt;/code> 来包围文档字符串&lt;/li>
+&lt;li>即使文档字符串一行就能写下也应使用三个引号，以便于以后扩展&lt;/li>
+&lt;li>若无特殊情况，文档字符串前后请不要有空行&lt;/li>
+&lt;li>描述项目代码的行为时，请使用类似 &lt;code>&amp;quot;&amp;quot;&amp;quot;Do X and return Y.&amp;quot;&amp;quot;&amp;quot;&lt;/code> 的主格形式，然后以句点结尾。请 &lt;strong>不要使用&lt;/strong> 类似 &lt;code>&amp;quot;&amp;quot;&amp;quot;Does X and returns Y.&amp;quot;&amp;quot;&amp;quot;&lt;/code> 这样的第三人称单数形式&lt;/li>
+&lt;li>多行文档字符串可以以一句概括开头，然后一个空行，接着是更详细的描述，类似 &lt;code>argument --- name of the person (string)&lt;/code> 这样来描述函数或方法的一个参数，每个参数占一行。&lt;/li>
+&lt;li>多行文档字符串无需另起一行，紧接着引号开始就好，就像这样 &lt;code>&amp;quot;&amp;quot;&amp;quot;Some summary...&lt;/code>&lt;/li>
+&lt;/ol>
+&lt;p>如果你是个完美主义者，或是有了中级的代码能力，可以查看&lt;a class="link" href="https://www.python.org/dev/peps/pep-0257/" target="_blank" rel="noopener"
+>官方文档&lt;/a>来获取更多的例子。&lt;/p></description></item><item><title>[译] PEP202 - 列表推导式</title><link>https://aiar.site/post/d034826933334bcea9d37ef90edfe891/</link><pubDate>Mon, 09 Jan 2023 17:00:01 +0800</pubDate><guid>https://aiar.site/post/d034826933334bcea9d37ef90edfe891/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShKQf.png" alt="Featured image of post [译] PEP202 - 列表推导式" />&lt;blockquote>
+&lt;p>原文标题：PEP 202 List Comprehensions&lt;br>
+原文作者：Barry Warsaw &amp;lt;barry at python.org&amp;gt;&lt;br>
+原文链接：&lt;a class="link" href="https://peps.python.org/pep-0202/" target="_blank" rel="noopener"
+>https://peps.python.org/pep-0202/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="概览">概览&lt;/h2>
+&lt;p>本篇 PEP 描述了一项 Python 语法扩展建议，列表推导式。&lt;/p>
+&lt;h2 id="方案">方案&lt;/h2>
+&lt;p>建议列表内元素可以使用 &lt;code>for&lt;/code> 和 &lt;code>if&lt;/code> 语句进行条件构造（包括相应嵌套格式）。&lt;/p>
+&lt;h2 id="基本原理">基本原理&lt;/h2>
+&lt;p>现今，使用 &lt;code>map()&lt;/code>、&lt;code>filter()&lt;/code> 配合嵌套循环创建列表的方式大行其道，而列表推导式提供了一种更简便的方式。&lt;/p>
+&lt;h2 id="例子">例子&lt;/h2>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">5&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">7&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">9&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">20&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">%&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">10&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">12&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">14&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">16&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">18&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">nums&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">fruit&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="s2">&amp;#34;Apples&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;Peaches&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;Pears&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s2">&amp;#34;Bananas&amp;#34;&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[(&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">nums&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">f&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">fruit&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Apples&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Apples&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Apples&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Apples&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[(&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">nums&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">f&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">fruit&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="s2">&amp;#34;P&amp;#34;&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[(&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">nums&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">f&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">fruit&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">f&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="s2">&amp;#34;P&amp;#34;&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">%&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Pears&amp;#39;&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">zip&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">nums&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">fruit&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span>&lt;span class="o">%&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">==&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">[(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Peaches&amp;#39;&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s1">&amp;#39;Bananas&amp;#39;&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="参考实现">参考实现&lt;/h2>
+&lt;p>列表推导式已成为 Python 语言 2.0 版本的一部分，相关信息已收录至&lt;a class="link" href="http://docs.python.org/reference/expressions.html#list-displays" target="_blank" rel="noopener"
+>1&lt;/a>&lt;/p>
+&lt;h2 id="bdfl-声明">BDFL 声明&lt;/h2>
+&lt;ul>
+&lt;li>请参照以上提出的语法&lt;/li>
+&lt;li>不支持 &lt;code>[x, y for ...]&lt;/code> 格式，应调整为 &lt;code>[(x, y) for ...]&lt;/code> 格式&lt;/li>
+&lt;li>嵌套格式 &lt;code>[... for x ... for y ...]&lt;/code> 中，类似普通 for 嵌套循环，最后面的索引最先执行&lt;/li>
+&lt;/ul>
+&lt;h2 id="参考">参考&lt;/h2>
+&lt;p>&lt;a class="link" href="http://docs.python.org/reference/expressions.html#list-displays" target="_blank" rel="noopener"
+>1 http://docs.python.org/reference/expressions.html#list-displays&lt;/a>&lt;/p>
+&lt;p>源文件：&lt;a class="link" href="https://github.com/python/peps/blob/main/pep-0202.txt" target="_blank" rel="noopener"
+>https://github.com/python/peps/blob/main/pep-0202.txt&lt;/a>&lt;/p></description></item><item><title>[译] PEP289 - 生成式表达式</title><link>https://aiar.site/post/58ee3468894b4f4e8eb1c7b32e008251/</link><pubDate>Fri, 21 May 2021 09:03:49 +0800</pubDate><guid>https://aiar.site/post/58ee3468894b4f4e8eb1c7b32e008251/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShKQf.png" alt="Featured image of post [译] PEP289 - 生成式表达式" />&lt;blockquote>
+&lt;p>原文标题：PEP 289 - Generator Expressions&lt;br>
+原文作者：python at rcn.com (Raymond Hettinger)&lt;br>
+原文链接：&lt;a class="link" href="https://peps.python.org/pep-0289/" target="_blank" rel="noopener"
+>https://peps.python.org/pep-0289/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="概览">概览&lt;/h2>
+&lt;p>本篇 PEP 介绍了生成器表达式(Generator Expressions)这种高性能的，内存高效泛化的列表推导式(List Comprehensions)和生成器(generators)。&lt;/p>
+&lt;h2 id="基本原理">基本原理&lt;/h2>
+&lt;p>从以往编程经验来看，列表推导式在 Python 的各个角落都有广泛的实用性。但是，其中不少的情况其实并不需要在内存中创建完整的列表(List)，而一次迭代一个元素就恰好满足它们的需求。&lt;/p>
+&lt;p>例如，下面这段列表求和的代码将在内存中完整的创建一个乘方的列表，然后遍历其中每一个值，最后当该引用(reference)不再需要时，删除整个列表：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="nb">sum&lt;/span>&lt;span class="p">([&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">)])&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>现在，可以通过使用生成器表达式来节省内存：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>其他容器对象的构造函数也同样支持类似的特性：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">s&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">set&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">word&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">line&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">page&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">word&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">line&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">split&lt;/span>&lt;span class="p">())&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">d&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">dict&lt;/span>&lt;span class="p">((&lt;/span>&lt;span class="n">k&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">func&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">k&lt;/span>&lt;span class="p">))&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">k&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">keylist&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>生成器表达式对于类似 &lt;code>sum()&lt;/code>，&lt;code>min()&lt;/code>， &lt;code>max()&lt;/code> 这种能将一个可迭代的输入汇聚成一个值的函数有着非常高效的作用：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="nb">max&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nb">len&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">line&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">line&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">file&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">line&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">strip&lt;/span>&lt;span class="p">())&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>生成器表达式简化(address)了一些使用 &lt;code>lambda&lt;/code> 函数的例子：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">reduce&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">lambda&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="n">s&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">a&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">myattr&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">data&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">reduce&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">lambda&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="n">s&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">a&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">],&lt;/span> &lt;span class="n">data&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>它们可以被简化为：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">myattr&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">a&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">data&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">a&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">data&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>列表生成式极大减少了开发人员对 &lt;code>filter()&lt;/code> 和 &lt;code>map()&lt;/code> 的需求；同时，生成器表达式也被寄予厚望来最大可能的减少人们对 &lt;code>itertools.ifliter()&lt;/code> 和 &lt;code>itertools.imap()&lt;/code> 的使用需求。相比之下，&lt;code>itertools&lt;/code> 中其他方法的能力将被生成器表达式进一步增强：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">dotproduct&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">y&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">y&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">itertools&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">izip&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x_vector&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">y_vector&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>在升级扩展应用时，与列表推导式类似的语法也能更容易的将已有代码转换为生成器表达式。&lt;/p>
+&lt;p>早期的版本中，生成器表达式相比于列表推导式有着相当明显的性能优势。但是后者针对 &lt;code>Py2.4&lt;/code> 做了高度优化，现在二者在处理中小型数据集时的性能已经大致相当。&lt;/p>
+&lt;p>但随着数据量的增长，由于生成器表达式不会耗尽缓存内存，同时还允许 Python 在迭代之间复用对象，所以生成器表达式往往能展现出更好的性能。&lt;/p>
+&lt;h2 id="bdfl-声明">BDFL 声明&lt;/h2>
+&lt;p>本 PEP 已被 Py2.4 接受。&lt;a class="link" href="#%e5%90%8d%e8%af%8d%e8%a7%a3%e9%87%8a" >[1]&lt;/a>&lt;/p>
+&lt;h2 id="细节描述">细节描述&lt;/h2>
+&lt;p>（也许对于火星读者来说，下面这些说的可能没那么全面确切，但我相信这些例子已经足够表述我的想法，以便在 c.l.py 进行讨论(译者注：最后半句没看懂)。Python 参考手册应涵盖以下所有语义语法规格。）&lt;/p>
+&lt;ol>
+&lt;li>生成器表达式的语义等同于创建一个匿名生成器函数并调用它。例如：&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">g&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="o">**&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="n">g&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">next&lt;/span>&lt;span class="p">()&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这等同于：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">def&lt;/span> &lt;span class="nf">__gen&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">bound_exp&lt;/span>&lt;span class="p">):&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">var1&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">bound_exp&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">exp2&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">var2&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">exp3&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="n">exp4&lt;/span>&lt;span class="p">:&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">...&lt;/span> &lt;span class="k">yield&lt;/span> &lt;span class="n">tgtexp&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">g&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">__gen&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nb">iter&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">exp1&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="k">del&lt;/span> &lt;span class="n">__gen&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="2">
+&lt;li>句法要求，生成器表达式需要直接置于一组小括号内，并且两边都不能有逗号。参考 CVS 中的 &lt;code>Grammar/Grammar&lt;/code> 文件，两条规则更改(&lt;em>译者注：语法文件可参照&lt;a class="link" href="https://docs.python.org/3.11/reference/grammar.html" target="_blank" rel="noopener"
+>官方文档&lt;/a>&lt;/em>)：&lt;/li>
+&lt;/ol>
+&lt;ul>
+&lt;li>规则1&lt;/li>
+&lt;/ul>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">atom: &amp;#39;(&amp;#39; [testlist] &amp;#39;)&amp;#39;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>更改为：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">atom: &amp;#39;(&amp;#39; [testlist_gexp] &amp;#39;)&amp;#39;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>其中 testlist_gexp 和 listmaker 基本没差，但 testlist_gexp 只允许在 &lt;code>for ... in&lt;/code> 之间进行单个测试。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">testlist_gexp: test ( gen_for | (&amp;#39;,&amp;#39; test)* [&amp;#39;,&amp;#39;] )
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ul>
+&lt;li>规则2，参数列表的规则需要进行类似修改。&lt;/li>
+&lt;/ul>
+&lt;p>也就意味着，只有一个参数时，生成器表达式小括号可以省略，如：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="o">**&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>但其他情况下，表达式小括号必须填写：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">reduce&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">operator&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">add&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="o">**&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">)))&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">g&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="o">**&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="nb">range&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">10&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>确切的细节已签入 &lt;code>Grammar/Grammar&lt;/code> 1.49版。&lt;/p>
+&lt;ol start="3">
+&lt;li>如果将一个或一组简单变量作为循环变量，那么它(们)不会暴露给外层函数。这样一来不仅有助于开发编码，而且可以让典型用例更加可信赖。在Python的一些未来版本中，列表推导式的迭代变量也将对外层函数代码隐身（并且在Py2.4中，访问迭代变量将会触发Warning）。例如：&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="s1">&amp;#39;hello&amp;#39;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="n">y&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">list&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="s1">&amp;#39;abc&amp;#39;&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="nb">print&lt;/span> &lt;span class="n">x&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">hello&lt;/span> &lt;span class="c1"># 而不是 c&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;ol start="4">
+&lt;li>列表推导式语法将保持不变，例如：&lt;/li>
+&lt;/ol>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">S&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="c1"># 这是一个列表推导式&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">[(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="n">S&lt;/span>&lt;span class="p">)]&lt;/span> &lt;span class="c1"># 这是一个列表，里面包含了一个生成器表达式&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>不幸的是，目前二者有着轻微的句法差异，列表推导式：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="c1"># python3 已不支持该写法&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>是合法的，它等同于：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">)]&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>但是生成器表达式不支持以上形式：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="n">x&lt;/span> &lt;span class="ow">in&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>非法。&lt;/p>
+&lt;p>之前的列表推导式语法将在 Python 3.0 中不再支持，同时也会在 Python2.4 及以后版本中被标为弃用。&lt;/p>
+&lt;p>为了让 Python3.0 中列表推导式的语义定义等同于 &lt;code>list(&amp;lt;generator expression&amp;gt;)&lt;/code>，上面提到的列表推导式会将其迭代变量“泄漏”到外层环境中的问题，也将在 Python 3.0 中得到修复。同时，在Py2.4 及以后版本中，如果列表推导式的迭代变量和当前上下文中的变量重名时，解释器将触发弃用警告。&lt;/p>
+&lt;h2 id="早期绑定-vs-后期绑定">早期绑定 vs. 后期绑定&lt;/h2>
+&lt;p>待续&lt;/p>
+&lt;h2 id="名词解释">名词解释&lt;/h2>
+&lt;p>[1] BDFL 终身仁慈独裁者（英语：Benevolent Dictator For Life，缩写BDFL）是少数开源软件开发者所拥有的头衔。他们通常是某一项目的创始人，并在该项目社区出现争议时拥有最终的决定权。来自&lt;a class="link" href="https://en.wikipedia.org/wiki/Benevolent_dictator_for_life" target="_blank" rel="noopener"
+>维基百科&lt;/a>&lt;/p></description></item><item><title>[译] 什么是AUR，如何在Arch和Manjaro中使用AUR</title><link>https://aiar.site/post/8cf42649f267457096df789ace7e2460/</link><pubDate>Fri, 21 May 2021 09:01:54 +0800</pubDate><guid>https://aiar.site/post/8cf42649f267457096df789ace7e2460/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFSgJB9.jpg" alt="Featured image of post [译] 什么是AUR，如何在Arch和Manjaro中使用AUR" />&lt;blockquote>
+&lt;p>原文: &lt;a class="link" href="https://itsfoss.com/aur-arch-linux/" target="_blank" rel="noopener"
+>What is Arch User Repository (AUR)? How to Use AUR on Arch and Manjaro Linux?&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;blockquote>
+&lt;p>最近更新: 2020/9/18 - &lt;a class="link" href="https://itsfoss.com/author/dimitrios/" target="_blank" rel="noopener"
+>Dimitrios Savvopoulos&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;p>如果你用过 &lt;a class="link" href="https://www.archlinux.org/" target="_blank" rel="noopener"
+>Arch Linux&lt;/a> 或者其他 &lt;a class="link" href="https://itsfoss.com/arch-based-linux-distros/" target="_blank" rel="noopener"
+>基于 Arch 的 Linux 发行版&lt;/a>(比如 Manjaro)，那么可能曾遇到过 &lt;code>AUR&lt;/code> 这个术语。在你尝试安装一个软件的时候，也许有人会建议你从 &lt;code>AUR&lt;/code> 来安装它，然后你满脸问号。&lt;/p>
+&lt;p>什么是 &lt;code>AUR&lt;/code>？为啥要用它？又要咋用？接下来，我将回答这些问题。&lt;/p>
+&lt;p>&lt;img src="https://i1.wp.com/itsfoss.com/wp-content/uploads/2020/04/what-is-aur.png?w=800&amp;amp;ssl=1"
+loading="lazy"
+alt="whatisaur"
+>&lt;/p>
+&lt;h2 id="什么是-aur">什么是 AUR&lt;/h2>
+&lt;p>&lt;code>AUR&lt;/code> 是 &lt;code>Arch User Repository&lt;/code> (Arch 用户资料库) 的缩写。这是一个
+社区驱动的资料库，它专注于服务那些使用 Arch 或者 Arch-base Linux 发行版的用户。AUR 包含一个名叫 &lt;a class="link" href="https://wiki.archlinux.org/index.php/PKGBUILD" target="_blank" rel="noopener"
+>PKGBULIDs&lt;/a> 的软件包说明(package descriptions)，它可以让你通过 &lt;a class="link" href="https://wiki.archlinux.org/index.php/Makepkg" target="_blank" rel="noopener"
+>makepkg&lt;/a> 来编译你所需的软件包，然后使用 &lt;a class="link" href="https://wiki.archlinux.org/index.php/Pacman#Additional_commands" target="_blank" rel="noopener"
+>pacman&lt;/a>(Arch Linux 的软件包管理器)来安装这个软件包。&lt;/p>
+&lt;p>&lt;code>AUR&lt;/code> 的创立是为了组织和分享那些来自社区的新软件包，以便于加速受欢迎的软件包被纳入&lt;a class="link" href="https://wiki.archlinux.org/index.php/Community_repository" target="_blank" rel="noopener"
+>社区资料库&lt;/a>。&lt;/p>
+&lt;p>有相当一部分进入官方资料库的新软件包开始时都是来源于 AUR。在 AUR，用户可以建设他们自己的软件包建设器(package builds，PKGBUILD 和相关文件)。&lt;/p>
+&lt;p>AUR 社区支持为社区中的软件包投票，如果某一个包足够受欢迎(假设它有兼容的许可证和良好的包装技术)，那么它可能可以直接进入社区资料库，这样就可以直接由 pacman 直接访问了。&lt;/p>
+&lt;blockquote>
+&lt;p>简而言之，AUR 就是一种特殊的软件安装途径，它允许开发人员在软件未正式纳入 Arch 资料库时，将该软件提供给 Arch Linux 用户以供安装使用。&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="应该使用-aur-么有什么风险">应该使用 AUR 么？有什么风险？&lt;/h2>
+&lt;p>使用 &lt;code>AUR&lt;/code> 就像横穿马路，如果小心谨慎，那就没什么问题。&lt;/p>
+&lt;p>如果你是一个 Linux 新手，建议还是不要轻易使用 &lt;code>AUR&lt;/code>，直到你已经全面的了解了 &lt;code>Arch/Manjaro&lt;/code> 和 &lt;code>Linux&lt;/code> 的基础知识。(译者注: 个人感觉 AUR 类似 GitHub)&lt;/p>
+&lt;p>的确，任何人都可以向 AUR 上传软件包，但是 &lt;a class="link" href="https://wiki.archlinux.org/index.php/Trusted_Users" target="_blank" rel="noopener"
+>Trusted Users&lt;/a>(TUs) 会负责密切关注上传的内容。尽管 TUs 会对上传的文件进行质量管控，但是仍无法保证 AUR 中的软件包格式正确或者无危胁。&lt;/p>
+&lt;p>在实践过程中，AUR 看起来仿佛很安全，但是理论上它是可以造成一些损害的，当然，这只会发生在你疏忽大意的时候。毕竟，从 AUR 安装软件时，机智的 Arch 使用者们应该每次都会检查 &lt;code>PKGBUILDs&lt;/code> 和 &lt;code>*.install&lt;/code> 文件。&lt;/p>
+&lt;p>另外，如果 AUR 中的软件包被纳入了 core/extra/community，那么 TUs(Trusted Users)会将 AUR 中删除该包，因此它们之间不应存在命名冲突。AUR 中经常包含着开发中的软件包(cvs/svn/git/etc)，他们将会被重命名，比如 foo-git。&lt;/p>
+&lt;p>对于 AUR 中的软件包，&lt;code>pacman&lt;/code> 会处理其依赖关系并检测文件冲突，因此不必担心某个包中的文件会将另外一个包的文件覆盖掉。除非你在默认情况里添加了 &lt;code>-force&lt;/code> 选项，如果你真这么做了，可能会遇到一堆比文件冲突更严重的问题。&lt;/p>
+&lt;h2 id="如何使用-aur">如何使用 AUR&lt;/h2>
+&lt;p>使用 AUR 最简单的方法就是通过一个 &lt;code>AUR helper&lt;/code>。大部分的 &lt;a class="link" href="https://itsfoss.com/best-aur-helpers/" target="_blank" rel="noopener"
+>AUR helper&lt;/a> 是命令行工具，有些也支持 GUI 图形化操作。这种工具支持搜索和安装那些发布在 AUR 上的软件包。&lt;/p>
+&lt;h3 id="在-arch-linux-上安装一个-aur-helper">在 Arch Linux 上安装一个 AUR helper&lt;/h3>
+&lt;p>假设你想使用的是 &lt;a class="link" href="https://github.com/Jguer/yay" target="_blank" rel="noopener"
+>Yay AUR helper&lt;/a> 这款工具。首先需要确保你的 Linux 上已经安装了 &lt;code>git&lt;/code>。然后 &lt;code>clone&lt;/code> 这个仓库，随后进入该文件夹，最后执行安装。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ sudo pacman -S git
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git clone https://aur.archlinux.org/yay.git
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> yay
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ makepkg -si
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>安装完毕后，就可以像下面这样使用 &lt;code>yay&lt;/code> 命令安装软件了~&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ yay -S package_name
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>当然，也不是说只有使用 AUR helper 才可以从 AUR 安装软件，下一部分你将看到如何不用 AUR helper 使用 AUR。&lt;/p>
+&lt;h3 id="不用-aur-helper-安装-aur-软件包">不用 AUR helper 安装 AUR 软件包&lt;/h3>
+&lt;p>如果你不想使用 AUR helper，你也可以自行从 AUR 安装软件包。&lt;/p>
+&lt;p>建议，在 &lt;a class="link" href="https://aur.archlinux.org/" target="_blank" rel="noopener"
+>AUR page&lt;/a> 中找到想安装的软件包之后，请参照该软件的 &lt;code>Licence&lt;/code>，&lt;code>Popularity&lt;/code>，&lt;code>Last Updated&lt;/code>，&lt;code>Dependencies&lt;/code> 等指标，判断其内容质量。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git clone &lt;span class="o">[&lt;/span>package URL&lt;span class="o">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> &lt;span class="o">[&lt;/span>package name&lt;span class="o">]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ makepkg -si
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>假设，你想安装 &lt;a class="link" href="https://aur.archlinux.org/packages/telegram-desktop-git" target="_blank" rel="noopener"
+>telegram desktop&lt;/a> 这个软件：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git clone https://aur.archlinux.org/telegram-desktop-git.git
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">cd&lt;/span> telegram-desktop-git
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ makepkg -si
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="在-manjaro-linux-中启用-aur-支持">在 Manjaro Linux 中启用 AUR 支持&lt;/h2>
+&lt;p>Manjaro Linux 默认不启用 AUR，需要使用 &lt;code>pamac&lt;/code> 来启用这一功能，我的笔记本使用的是 &lt;a class="link" href="https://manjaro.org/" target="_blank" rel="noopener"
+>Manjaro&lt;/a> Cinnamon，但下面的步骤适用于所有版本的 Manjaro。&lt;/p>
+&lt;p>打开 Pamac 也就是 &lt;code>Add/Remove Software&lt;/code>：
+&lt;img src="https://i1.wp.com/i.imgur.com/kFF6HtW.png?ssl=1"
+loading="lazy"
+alt="打开Pamac"
+>&lt;/p>
+&lt;p>打开 Pamac 之后，进入属性 &lt;code>Preferences&lt;/code>：
+&lt;img src="https://i0.wp.com/i.imgur.com/47r963A.png?ssl=1"
+loading="lazy"
+alt="打开属性"
+>&lt;/p>
+&lt;p>打开属性对话框，进入 AUR 页签，启用 AUR 支持，启用检测更新，然后关闭对话框。&lt;/p>
+&lt;p>&lt;img src="https://i1.wp.com/i.imgur.com/UThiDHO.png?ssl=1"
+loading="lazy"
+alt="启用AUR"
+>&lt;/p>
+&lt;p>现在，搜索软件的时候可以搜到源自 AUR 的软件包了，可以通过软件描述下面的标签来区分。&lt;/p>
+&lt;p>&lt;img src="https://i2.wp.com/i.imgur.com/RM5BKi2.png?ssl=1"
+loading="lazy"
+alt="区分源自AUR的软件"
+>&lt;/p>
+&lt;p>AUR 是大家 &lt;a class="link" href="https://itsfoss.com/why-arch-linux/" target="_blank" rel="noopener"
+>热爱 Arch Linux 的众多原因&lt;/a> 之一，你可以看到它为什么如此流行。&lt;/p>
+&lt;p>希望本文对你有用。&lt;/p>
+&lt;p>希望能看到各大社交媒体上即将出现的 Arch 主题~&lt;/p></description></item><item><title>[译] 模式：API网关和BFF</title><link>https://aiar.site/post/2b9443a5b0dc404082f04cd7a6802814/</link><pubDate>Thu, 03 Sep 2020 14:50:29 +0800</pubDate><guid>https://aiar.site/post/2b9443a5b0dc404082f04cd7a6802814/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFSgNA1.png" alt="Featured image of post [译] 模式：API网关和BFF" />&lt;blockquote>
+&lt;ul>
+&lt;li>原文地址：&lt;a class="link" href="https://microservices.io/patterns/apigateway.html" target="_blank" rel="noopener"
+>Pattern: API Gateway / Backends for Frontends&lt;/a>&lt;/li>
+&lt;li>原文作者：&lt;a class="link" href="https://microservices.io/about.html" target="_blank" rel="noopener"
+>Chris Richardson&lt;/a>&lt;/li>
+&lt;li>译文出自：&lt;a class="link" href="https://microservices.io/" target="_blank" rel="noopener"
+>Microservice Architecture&lt;/a>&lt;/li>
+&lt;li>译者：&lt;a class="link" href="https://github.com/Arrackisarookie" target="_blank" rel="noopener"
+>Arrackisarookie&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;/blockquote>
+&lt;h2 id="情景">情景&lt;/h2>
+&lt;p>试想，你的团队正在搭建一个在线商城，它使用了&lt;a class="link" href="https://microservices.io/patterns/microservices.html" target="_blank" rel="noopener"
+>微服务架构模式&lt;/a>，现在需要你实现产品的信息细节页面。针对这个产品信息页面，你需要开发多个版本的用户接口：&lt;/p>
+&lt;ul>
+&lt;li>基于 &lt;code>HTML5/JavaScript&lt;/code> 适用于桌面和手机浏览器的用户接口 - HTML 由服务器端的 Web 应用程序生成&lt;/li>
+&lt;li>本地的 &lt;code>Android&lt;/code> 和 &lt;code>iPhone&lt;/code> 客户端 - 这些客户端通过 &lt;code>REST APIs&lt;/code> 与服务器进行交互&lt;/li>
+&lt;/ul>
+&lt;p>另外，这个在线商城必须可以通过一个 &lt;code>REST API&lt;/code> 暴露产品信息，以供第三方应用使用获取。&lt;/p>
+&lt;p>产品信息页会展示大量有关该产品的信息。比如 &lt;em>Amzon.com&lt;/em> 上 &lt;a class="link" href="http://www.amazon.com/POJOs-Action-Developing-Applications-Lightweight/dp/1932394583" target="_blank" rel="noopener"
+>POJOs in Action&lt;/a> 这本书的信息页展示了：&lt;/p>
+&lt;ul>
+&lt;li>这本书的基本信息，像标题，作者，价格等等&lt;/li>
+&lt;li>你对于这本书的支付历史&lt;/li>
+&lt;li>是否可以购买(库存)&lt;/li>
+&lt;li>购买选项&lt;/li>
+&lt;li>和这本书经常一起购买的书&lt;/li>
+&lt;li>买了这本书的其他买家还买了哪些书&lt;/li>
+&lt;li>买家评论&lt;/li>
+&lt;li>卖家排行&lt;/li>
+&lt;li>&amp;hellip;&lt;/li>
+&lt;/ul>
+&lt;p>由于这个在线商城使用了微服务架构模式，产品的具体信息被分布在了多个微服务上。比如：&lt;/p>
+&lt;ul>
+&lt;li>产品信息服务 - 该产品的基本信息，类似标题，作者&lt;/li>
+&lt;li>价格服务 - 产品的定价&lt;/li>
+&lt;li>订单服务 - 产品的支付历史&lt;/li>
+&lt;li>库存服务 - 产品是否可购买&lt;/li>
+&lt;li>评论服务 - 买家评论&lt;/li>
+&lt;/ul>
+&lt;p>这样一来，展示产品信息的代码需要从以上所有服务中获取信息。&lt;/p>
+&lt;h2 id="问题">问题&lt;/h2>
+&lt;p>一个基于微服务的应用程序客户端如何访问一个个独立的服务呢？&lt;/p>
+&lt;h2 id="痛点">痛点&lt;/h2>
+&lt;ul>
+&lt;li>由微服务提供的 APIs，它的粒度经常和客户端所需的粒度有所不同。微服务一般会提供细粒度的 APIs，这也就意味着客户端需要和很多微服务产生交互。就像上面情境中描述的，客户端如果需要展示的产品信息细节，就需要从大量的服务中获取数据&lt;/li>
+&lt;li>不同的客户端需要不同的数据。比如，桌面浏览器版本的产品信息页要比手机版本的更加细致丰富。&lt;/li>
+&lt;li>对于不同类型的客户端，网络性能也是不同的。比如，手机网络一般要比非手机网络更慢而且延时更高。当然，广域网也会比局域网慢很多。这也就意味着使用手机网络的移动客户端和使用局域网的服务器端 Web 应用程序将有着差异非常大的性能特点。服务器端的 Web 应用程序可以同时处理多个传到后端的请求，并且不会影响到用户的体验，而手机客户端只能做到一点点&lt;/li>
+&lt;li>服务实例的数量和他们地址(主机地址+端口)的动态改变&lt;/li>
+&lt;li>拆分成的多个服务可能会随着时间改变拆分方式，这些对于客户端应该是隐藏的&lt;/li>
+&lt;li>众多的服务可能会使用各种各样的协议，其中有些可能对网络不友好&lt;/li>
+&lt;/ul>
+&lt;h2 id="解决">解决&lt;/h2>
+&lt;p>实现一个 API 网关，让它作为所有的客户端访问服务器的唯一入口。API 网关处理请求一般有两种方式，一些请求会被简单的代理到或路由到合适的服务，而对于另外一些服务，网关可能会同时分发给多个服务(&lt;a class="link" href="https://en.wikipedia.org/wiki/Fan-out_%28software%29" target="_blank" rel="noopener"
+>fan out to multiple services&lt;/a>)。&lt;/p>
+&lt;p>&lt;img src="https://microservices.io/i/apigateway.jpg"
+loading="lazy"
+alt="Use an API gateway"
+>&lt;/p>
+&lt;p>不同于提供一套适用于所有类型的通用 API，我们的 API 网关可以为每一种客户端暴露不同的 API 接口。比如，&lt;a class="link" href="" >Netflix API&lt;/a> 运行着一套客户端识别适配代码，它可以为每一种客户端提供其所需的最合适的 API 接口。&lt;/p>
+&lt;p>API 网关可能也会实现安全措施，例如验证客户端是否被授权可以执行该请求。&lt;/p>
+&lt;h2 id="变种服务于前端的后端backends-for-frontends---bff">变种：服务于前端的后端(Backends for frontends - BFF)&lt;/h2>
+&lt;p>上面所说的这种模式有个变种形式，也就是 &lt;code>BFF&lt;/code> 模式。它为每个类型的客户端定义了一套专门的 API 接口。&lt;/p>
+&lt;p>&lt;img src="https://microservices.io/i/bffe.png"
+loading="lazy"
+alt="Variation: Backends for frontends"
+>&lt;/p>
+&lt;p>在这个例子中，有三种客户端：Web 应用，移动应用和外部第三方应用。同样，也有三种不同的 API 网关，它们和之前提到的三种客户端一一对应。&lt;/p>
+&lt;h2 id="结论">结论&lt;/h2>
+&lt;p>使用 API 网关有以下优势：&lt;/p>
+&lt;ul>
+&lt;li>客户端将与应用后台如何划分微服务完全隔离&lt;/li>
+&lt;li>客户端将与决定服务实例位置的问题完全隔离&lt;/li>
+&lt;li>为每一种客户端提供最佳的 API&lt;/li>
+&lt;li>削减了大量的请求和往返次数。比如，API 网关允许客户端在一次往返中从多个服务中获取数据。更少的请求次数也意味着更少的资源开销，和更优质的用户体验。API 网关对于移动应用来说十分必要&lt;/li>
+&lt;li>简化了客户端。改变了客户端的运行逻辑，客户端不再需要调用多个服务，而是把这一切工作移给了 API 网关&lt;/li>
+&lt;li>它可以将标准的公共网络友好的 API 协议转换成内部使用的任意协议&lt;/li>
+&lt;/ul>
+&lt;p>API 网关也有它的劣势：&lt;/p>
+&lt;ul>
+&lt;li>复杂性提升了 - API 网关事实上是一个独立的可插拔部件，它也必须需要开发，发布和管理&lt;/li>
+&lt;li>增加了响应时间 - 由于经过 API 网关时增加了额外的网络跳转，所以响应时间会有所增加。但是对于大部分应用来说，这一点增加的开销是微不足道的。&lt;/li>
+&lt;/ul>
+&lt;p>议题&lt;/p>
+&lt;ul>
+&lt;li>如何实现 API 网关呢？如果该网关必须按照比例缩放以应对高负载，那么最好采用事件驱动或响应式的方法。在 &lt;code>JVM&lt;/code>，或者像 &lt;code>Netty&lt;/code>，&lt;code>Spring Reactor&lt;/code> 这样的基于 &lt;code>NIO&lt;/code> 的库效果很好。&lt;code>NodeJS&lt;/code> 也是一种选择。&lt;/li>
+&lt;/ul>
+&lt;h2 id="相关的模式">相关的模式&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://microservices.io/patterns/microservices.html" target="_blank" rel="noopener"
+>微服务架构模式(Microservice architecture pattern)&lt;/a> 为 API 网关模式创造了需求&lt;/li>
+&lt;li>API 网关必须使用 &lt;a class="link" href="https://microservices.io/patterns/client-side-discovery.html" target="_blank" rel="noopener"
+>客户端探索模式(Client-side Discovery pattern)&lt;/a> 或者 &lt;a class="link" href="https://microservices.io/patterns/server-side-discovery.html" target="_blank" rel="noopener"
+>服务器端探索模式(Server-side Discovery pattern)&lt;/a> 来将请求路由到可用的服务实例&lt;/li>
+&lt;li>API 网关可以验证用户身份，并且会将一个包含用户信息的 &lt;a class="link" href="https://microservices.io/patterns/security/access-token.html" target="_blank" rel="noopener"
+>访问令牌(Access Token)&lt;/a> 传送给服务&lt;/li>
+&lt;li>API 网关需要使用 &lt;a class="link" href="https://microservices.io/patterns/reliability/circuit-breaker.html" target="_blank" rel="noopener"
+>断路器模式(Circuit Breaker)&lt;/a> 来调用服务&lt;/li>
+&lt;li>API 网关经常会实现 &lt;a class="link" href="https://microservices.io/patterns/data/api-composition.html" target="_blank" rel="noopener"
+>API 组合模式(API Composition pattern)&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h2 id="已知在使用的">已知在使用的&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="http://techblog.netflix.com/2012/07/embracing-differences-inside-netflix.html" target="_blank" rel="noopener"
+>Netflix API 网关&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h2 id="应用范例">应用范例&lt;/h2>
+&lt;p>请参阅微服务模式中 &lt;a class="link" href="https://github.com/microservice-patterns/ftgo-application" target="_blank" rel="noopener"
+>应用程序范例&lt;/a> 的 API 网关部分。它使用 Spring Cloud Gateway 实现。&lt;/p></description></item><item><title>[译] Fish 命令行的生产效率</title><link>https://aiar.site/post/f4273dc3df9447f2ae8f9c58d9df142e/</link><pubDate>Thu, 30 Jul 2020 09:12:49 +0800</pubDate><guid>https://aiar.site/post/f4273dc3df9447f2ae8f9c58d9df142e/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShEod.jpg" alt="Featured image of post [译] Fish 命令行的生产效率" />&lt;p>原文链接: &lt;a class="link" href="https://dev.to/yankee/command-line-productivity-with-fish-shell-52e4" target="_blank" rel="noopener"
+>Command line productivity with Fish shell&lt;/a>&lt;/p>
+&lt;p>用 Fish 终端处理事务，
+你将拥有不止一种解决问题的途径，
+这是她的魅力所在。
+无止境的定制方案和调整插件可以让事务更快速，
+更高效的被处理完成。&lt;/p>
+&lt;p>在使用 WSL 的时候，
+我心爱的 &lt;code>zsh&lt;/code> 和 &lt;code>oh-my-zsh&lt;/code> 组合让我陷入了性能危机。
+彷徨无助了一个小时后，
+我迷迷糊糊的投入了 &lt;code>Fish Shell&lt;/code> 的怀抱，
+听说在 WSL 中，Fish 要比 zsh 快十倍
+(不是真实的比例指标，但是赶脚真的非常非常快)。
+但是，Fish 也有些她自己的怪癖，后面我会介绍到。&lt;/p>
+&lt;h2 id="安装-fish-shell">安装 Fish Shell&lt;/h2>
+&lt;p>如果你使用的是 &lt;code>Debian-based&lt;/code> 的发行版：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ sudo apt-get install fish
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果你使用的是其他平台，请按照
+&lt;a class="link" href="https://github.com/fish-shell/fish-shell#getting-fish" target="_blank" rel="noopener"
+>这里&lt;/a>
+的指示进行操作。&lt;/p>
+&lt;h2 id="fish-shell-介绍">Fish Shell 介绍&lt;/h2>
+&lt;p>Fish Shell 非常的轻量，反馈表现迅速，并且有着丰富的特性。
+这意味着，你只需花费一点精力就能在终端中产生可观的生产效率。
+主要特性功能有：&lt;/p>
+&lt;ul>
+&lt;li>语法高亮&lt;/li>
+&lt;li>自动建议命令&lt;/li>
+&lt;li>tab 补全&lt;/li>
+&lt;li>方法自动导入&lt;/li>
+&lt;/ul>
+&lt;p>Fish 的官方文档非常丰富和详尽，在本地有一份文档的副本，
+你可以通过在 Fish Shell 中键入 &lt;code>help&lt;/code> 来在浏览器打开这个文档。
+对于大多数人来说，安装原生 Fish 就已经足够。
+但我们也可以使用插件，主题布拉布拉来使得 Fish 更加可用，和易于调整。
+和其他 Shell 类似，Fish 有着大量的插件安装框架，
+而我们将使用的插件安装框架被称为 &lt;code>oh-my-fish(omf)&lt;/code>。&lt;/p>
+&lt;h2 id="omf-介绍">omf 介绍&lt;/h2>
+&lt;p>omf 是在 Fish Shell 之外，最上面薄薄的一个层，
+因此你不必担心速度和性能的问题。可以通过一条简单的命令安装它：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ curl -L https://get.oh-my.fish &lt;span class="p">|&lt;/span> fish
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>安装完毕后，你的 Fish Shell 将获得一个 &lt;code>omf&lt;/code> 命令，
+这个命令可以安装主题和其他有用的插件。omf 十分直观，
+如果你曾使用过 nvm 或者 pip，你会有种似曾相识的感觉。&lt;/p>
+&lt;h3 id="omf-主题">omf 主题&lt;/h3>
+&lt;p>omf 有着各种各样的主题供你选择。你可以找到托管在 omf 的所有主题，
+或者你可以使用 &lt;code>omf theme&lt;/code> 命令来列出所有可用主题，
+已安装主题和默认主题。&lt;/p>
+&lt;p>安装新主题时，当前 Fish Shell 客户端将会直接应用该主题。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ omf install &amp;lt;theme-name&amp;gt;
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ omf install bira
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;img src="https://res.cloudinary.com/practicaldev/image/fetch/s--_3T8aDWd--/c_limit%2Cf_auto%2Cfl_progressive%2Cq_66%2Cw_880/https://cdn-images-1.medium.com/max/2032/1%2ARFN2ONxk2-Lzn_K9uUptzg.gif"
+loading="lazy"
+alt="展示主题-实例"
+>
+&lt;em>列出主题和切换主题&lt;/em>&lt;/p>
+&lt;p>如果你拥有很多主题，可以这样来在它们之间切换：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ omf theme &amp;lt;theme-name&amp;gt;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="omf-别名">omf 别名&lt;/h3>
+&lt;p>当你需要完成一些重复的任务时，
+omf 的别名功能可以让你尽可能的减少键盘敲击次数。
+Fish Shell 的 &lt;code>alias&lt;/code> 命令可以用来定义操作的别名。
+你可以通过命令行轻易的使用它。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">alias&lt;/span> &amp;lt;alias&amp;gt; &lt;span class="s1">&amp;#39;&amp;lt;command&amp;gt;&amp;#39;&lt;/span> -s
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">alias&lt;/span> install &lt;span class="s1">&amp;#39;sudo apt-get install&amp;#39;&lt;/span> -s
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">alias&lt;/span> remove &lt;span class="s1">&amp;#39;sudo apt-get remove --purge&amp;#39;&lt;/span> -s
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>定义了以上的别名后，你就可以通过 &lt;code>install&lt;/code> 命令来安装所有的包，
+或者使用 &lt;code>remove&lt;/code> 命令来完全删除某个包。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ install vim
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ remove python2.7
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;img src="https://res.cloudinary.com/practicaldev/image/fetch/s--YLN2JNx---/c_limit%2Cf_auto%2Cfl_progressive%2Cq_66%2Cw_880/https://cdn-images-1.medium.com/max/2032/1%2AWThV-osTr7qeVxtDH7cSiw.gif"
+loading="lazy"
+alt="创建别名"
+>
+&lt;em>创建别名install&lt;/em>&lt;/p>
+&lt;p>通过 &lt;code>alias&lt;/code> 命令创建的别名可以一直保持到本次会话结束，
+也就意味着，如果你打开了一个新的终端进程，之前创建的别名将不再工作。&lt;/p>
+&lt;p>如果想让之前定义的别名可以在新的终端工作，我们需要使用 &lt;code>-s&lt;/code> 标记。
+它将在后台使用 &lt;code>funcsave&lt;/code>。&lt;/p>
+&lt;p>使用了 &lt;code>-s&lt;/code> 标记的别名定义，将被定义为永久性的别名，
+本机的任何 Fish 终端都可以使用。&lt;/p>
+&lt;p>当你忘记了自己定义过啥别名，
+你可以使用 &lt;code>alias&lt;/code> 命令来浏览所有已定义的别名。
+&lt;img src="https://res.cloudinary.com/practicaldev/image/fetch/s--D4RMiEnz--/c_limit%2Cf_auto%2Cfl_progressive%2Cq_66%2Cw_880/https://cdn-images-1.medium.com/max/2032/1%2AvQumglI-6OpHawA-I5L9nA.gif"
+loading="lazy"
+alt="列出所有别名"
+>
+&lt;em>列出所有别名&lt;/em>&lt;/p>
+&lt;h3 id="使用-nvm">使用 nvm&lt;/h3>
+&lt;p>Fish Shell 的其中一个怪癖是，他不能像 nvm 一样运行 bash 工具。
+为此，你需要一个叫做 &lt;a class="link" href="https://github.com/edc/bass" target="_blank" rel="noopener"
+>bass&lt;/a>的包，
+来将 nvm 暴露给 Fish Shell。&lt;/p>
+&lt;p>bass 创建了一个可以支持其他 bash 工具包的框架，
+比如我们稍后会使用一个叫 &lt;code>fish-nvm&lt;/code> 的工具包。
+也有很多其他用于 nvm 的工具包，但是 fish-nvm 不会影响性能。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ omf install bass
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ omf install https://github.com/FabioAntunes/fish-nvm
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="使用-virtualenv">使用 virtualenv&lt;/h4>
+&lt;p>这是使用 Fish Shell 的一个陷阱。当你在 Python 的虚拟环境工作时，
+你 &lt;em>不能&lt;/em> 使用 下面这样普通的方式激活虚拟环境：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ python -m venv venv
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> venv/bin/activate
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>而是要使用下面的方式：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">source&lt;/span> venv/bin/activate.fish
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="高效的包">高效的包&lt;/h2>
+&lt;h3 id="pj">pj&lt;/h3>
+&lt;p>(译者注：翻译的挺烂的，原文写的也不咋地，主要看图和gif大概就能懂)&lt;/p>
+&lt;p>pj 会以一种预测的方式，在你喜欢的目录之间跳转。
+告诉 pj 去哪里寻找你的项目或者文件夹，
+然后他可以通过 tab 来补全。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ omf install pj
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>比如，在 &lt;code>home&lt;/code> 目录下有个 &lt;code>test&lt;/code> 文件夹，里面有一堆别的文件夹。
+&lt;img src="https://res.cloudinary.com/practicaldev/image/fetch/s--Sv_aZ2Gb--/c_limit%2Cf_auto%2Cfl_progressive%2Cq_auto%2Cw_880/https://cdn-images-1.medium.com/max/2000/1%2AWGRQj64vuEugFL_z2Ffzfw.png"
+loading="lazy"
+alt="hhh"
+>
+为了将 &lt;code>test&lt;/code> 文件夹标记为跳转目标，我们需要设置这样的项目地址：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">set&lt;/span> -Ux PROJECT_PATHS ~/test
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>现在，我们可以在任意位置来访问 test 内的文件夹了。
+&lt;img src="https://res.cloudinary.com/practicaldev/image/fetch/s--bSfr11nc--/c_limit%2Cf_auto%2Cfl_progressive%2Cq_66%2Cw_880/https://cdn-images-1.medium.com/max/2272/1%2AjI0uddiur0aJXbsjmz1y_g.gif"
+loading="lazy"
+alt="pj jump"
+>
+&lt;em>pj 的作用&lt;/em>&lt;/p>
+&lt;h3 id="z">z&lt;/h3>
+&lt;p>z 和 pj 有些相似，但从某种意义上来说 z 更加智能，
+它会持续跟踪你最常访问的一些文件夹，因此你可以轻松的跳到这些位置。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ omf install z
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>就像我说的，z 是一个智能的工具，即使我输入了错别字，
+它也会从我的最常访问里努力匹配到与输入最相近的那一个。
+&lt;img src="https://res.cloudinary.com/practicaldev/image/fetch/s--sxD8x3zV--/c_limit%2Cf_auto%2Cfl_progressive%2Cq_66%2Cw_880/https://cdn-images-1.medium.com/max/2000/1%2Ax8va4Ph_V_ADbMSre0PasA.gif"
+loading="lazy"
+alt="z"
+>
+&lt;em>z 的作用&lt;/em>&lt;/p>
+&lt;h3 id="plugin-git">plugin-git&lt;/h3>
+&lt;p>和 zsh 中的 git 插件类似，plugin-git 包会给予你一个标准 git 别名集合
+来加速你的 git 工作流。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ omf install https://github.com/jhillyerd/plugin-git
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;img src="https://res.cloudinary.com/practicaldev/image/fetch/s--vSUKKMXZ--/c_limit%2Cf_auto%2Cfl_progressive%2Cq_66%2Cw_880/https://cdn-images-1.medium.com/max/2000/1%2AN9xOm9M149wtYDQdlT7B3w.gif"
+loading="lazy"
+alt="plugin-git 的作用"
+>
+&lt;em>plugin-git 的作用&lt;/em>&lt;/p>
+&lt;p>不只这样，为了确保你使用正确的别名，
+它也会将别名进行展开，来形成完整的命令。
+这里有完整的&lt;a class="link" href="https://github.com/jhillyerd/plugin-git#usage" target="_blank" rel="noopener"
+>别名列表&lt;/a>。&lt;/p>
+&lt;h3 id="fzf">fzf&lt;/h3>
+&lt;p>Fuzzy Finder(模糊查找) 或者 fzf 是一种更加快速的通用查找工具，
+可以用它来查找文件或者命令历史。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ omf install https://github.com/jethrokuan/fzf
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>搜索遍历你的命令历史记录，你可以使用 &lt;code>ctrl + r&lt;/code> 或者输入该命令的某些部分，
+然后敲击 &lt;code>ctrl + r&lt;/code> 来精准查找符合条件的命令。
+&lt;img src="https://res.cloudinary.com/practicaldev/image/fetch/s--zbqXU3cs--/c_limit%2Cf_auto%2Cfl_progressive%2Cq_66%2Cw_880/https://cdn-images-1.medium.com/max/2000/1%2AlOEP-GYgbG07VnTca6o18g.gif"
+loading="lazy"
+alt="fzf 的使用"
+>
+&lt;em>fzf 的使用&lt;/em>&lt;/p>
+&lt;p>如果你想在当前目录下搜索文件，你可以使用 &lt;code>ctrl + o&lt;/code> 然后浏览他们。
+你可以用这个工具做更多事情，点击&lt;a class="link" href="https://github.com/jethrokuan/fzf#usage" target="_blank" rel="noopener"
+>这里&lt;/a>查看更多。&lt;/p>
+&lt;h2 id="总结">总结&lt;/h2>
+&lt;p>我希望这篇文章能很好的指导安装 Fish 和提升工作流的效率。如果你有任何建议或问题，
+下面评论就好~&lt;/p></description></item><item><title>[译] 相见恨晚的 Git 命令</title><link>https://aiar.site/post/cd5224ee1b194218bb7c286582bb4db2/</link><pubDate>Fri, 03 Jul 2020 08:54:48 +0800</pubDate><guid>https://aiar.site/post/cd5224ee1b194218bb7c286582bb4db2/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFShZFA.png" alt="Featured image of post [译] 相见恨晚的 Git 命令" />&lt;blockquote>
+&lt;ul>
+&lt;li>原文地址：&lt;a class="link" href="https://dev.to/g_abud/advanced-git-reference-1o9j" target="_blank" rel="noopener"
+>Git Concepts I Wish I Knew Years Ago&lt;/a>&lt;/li>
+&lt;li>原文作者：&lt;a class="link" href="https://dev.to/g_abud" target="_blank" rel="noopener"
+>Gabriel Abud&lt;/a>&lt;/li>
+&lt;li>译文出自：&lt;a class="link" href="https://dev.to/" target="_blank" rel="noopener"
+>DEV Community&lt;/a>&lt;/li>
+&lt;li>译者：&lt;a class="link" href="https://github.com/Arrackisarookie" target="_blank" rel="noopener"
+>Arrackisarookie&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;/blockquote>
+&lt;p>我辈开发者使用最多的技术既不是 JavaScript，
+也不是 Python 或者 HTML。
+它甚至在面试中都很少被提到，也很少被列入工作的必备技术栈。&lt;/p>
+&lt;p>没错，我说的正是 Git 和版本控制。&lt;/p>
+&lt;p>长久以来，我们大部分开发人员只学过一点点 Git 的概念。
+这些知识仅仅能让我们拥有在一个小团队内使用简单功能分支工作流的能力。
+如果你也像我一样，这种状态将会伴随你的职业生涯很久。&lt;/p>
+&lt;p>是时候再访 Git，重新审视一下掌握它对我们职业生涯的提升有多么重要。
+本指南可以作为一篇参考，它包含了一些我认为很是重要但可能鲜为人知的概念。
+掌握 Git 之后，你管理代码的方式以及每天的工作流将会发生巨大的改变。
+由于 Git 命令有些陈旧并且难以记忆，因此本文将会按照概念和预期表现进行分解。&lt;/p>
+&lt;p>如果你对 Git 的基本概念掌握的不够牢固，比如工作目录、本地仓库和远程仓库之间的区别，
+那么建议你可以先阅读&lt;a class="link" href="https://dev.to/unseenwizzard/learn-git-concepts-not-commands-4gjc" target="_blank" rel="noopener"
+>这篇指南&lt;/a>。
+同样，如果没有掌握 Git 的基本命令，可以从&lt;a class="link" href="https://git-scm.com/docs/gittutorial" target="_blank" rel="noopener"
+>官方文档&lt;/a>开始学习。
+本文并不意味着会带你从一个彻底的新手变成专业人员，
+而是默认你已经熟练掌握如何使用 Git。&lt;/p>
+&lt;h2 id="基本-git-命令">基本 Git 命令&lt;/h2>
+&lt;h3 id="日志">日志&lt;/h3>
+&lt;h4 id="我刚干哈了">我刚干哈了&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git log
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git log --oneline &lt;span class="c1"># 更为精炼的输出&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git log --graph &lt;span class="c1"># 以分支的可视化图显示&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="查看你的撤销历史">查看你的撤销历史&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git reflag
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>因为有时 &lt;code>git log&lt;/code> 命令无法捕捉到撤销的命令，
+特别是对于那些无法在 commit 历史里显示的命令。&lt;/p>
+&lt;p>在你运行了类似 &lt;code>git rebase&lt;/code> 这样的“危害型”命令后，
+&lt;code>reflag&lt;/code> 基本上可以算是一层安全网。
+你不仅可以看到之前所做的 commit，
+而且还将看到导致 commit 的每一个过程。
+看这篇 &lt;a class="link" href="https://www.atlassian.com/git/tutorials/refs-and-the-reflog" target="_blank" rel="noopener"
+>Atlassian 上的文章&lt;/a>
+来了解更多关于 refs 运作方式。&lt;/p>
+&lt;h4 id="查看当前状态--任何合并冲突">查看当前状态 + 任何合并冲突&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git status
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>虽然 &lt;code>git status&lt;/code> 是一个非常基础的命令，我们很早之前就学过，
+但是，由于它作为 Git 内部基本原理的学习工具，其重要程度仍然值得
+我们重复学习。
+它还可以帮助你浏览复杂的 rebase 和 merge 过程。&lt;/p>
+&lt;h4 id="对比-staged-或者-unstaged-中的异同">对比 staged (或者 unstaged) 中的异同&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git diff --staged &lt;span class="c1"># staged 的改变&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git diff &lt;span class="c1"># unstaged 的改变&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="对比两个分支之间的异同">对比两个分支之间的异同&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git diff branch1..branch2
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="导航-navigation">导航 (Navigation)&lt;/h3>
+&lt;h4 id="我想看看我之前干哈了">我想看看我之前干哈了&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git reset &amp;lt;commit-sha&amp;gt;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这条命令将会撤销对应 commit，并且取消那次 commit 中的 stage 操作，
+但是那些文件仍然保留在工作目录。&lt;/p>
+&lt;h4 id="我想切换到别的分支">我想切换到别的分支&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git switch branch-name &lt;span class="c1"># Git 2.23 中的新语法&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git checkout branch-name &lt;span class="c1"># 经典语法&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;code>git checkout&lt;/code> 可能会有些让人难以理解，因为他既可以工作在文件层级，
+也可以工作在分支层级。
+从 &lt;a class="link" href="https://www.infoq.com/news/2019/08/git-2-23-switch-restore/" target="_blank" rel="noopener"
+>Git 2.23&lt;/a>
+开始，我们拥有了两个新的命令：&lt;/p>
+&lt;ul>
+&lt;li>&lt;code>git restore&lt;/code> 用来 checkout 文件&lt;/li>
+&lt;li>&lt;code>git switch&lt;/code> 用来 checkout 分支&lt;/li>
+&lt;/ul>
+&lt;p>(译者注：详细可访问 &lt;a class="link" href="https://git-scm.com/docs/git-restore" target="_blank" rel="noopener"
+>官方文档&lt;/a>
+和 &lt;a class="link" href="https://stackoverflow.com/questions/58003030/what-is-git-restore-command-what-is-the-different-between-git-restore-and-git" target="_blank" rel="noopener"
+>Stack Overflow 相关提问&lt;/a>)&lt;/p>
+&lt;p>如果你想避免 &lt;code>git checkout&lt;/code> 造成的困扰，上面两个命令非常适合你。&lt;/p>
+&lt;h4 id="我想回到之前我在的分支">我想回到之前我在的分支&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git switch -
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h3 id="修改-modifications">修改 (Modifications)&lt;/h3>
+&lt;h4 id="我把自己挖进了兔子洞让我们重新开始">我把自己挖进了兔子洞，让我们重新开始&lt;/h4>
+&lt;p>(译者注: get 不到这个梗。。)&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git reset --hard HEAD
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这条命令将重置本地目录到最近一次 commit 的状态，并且会放弃所有 unstage 的文件。&lt;/p>
+&lt;h4 id="我想把一个文件重置到之前的样子">我想把一个文件重置到之前的样子&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git restore &amp;lt;filename&amp;gt; &lt;span class="c1"># Git 2.23 新语法&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git checkout -- &amp;lt;filename&amp;gt; &lt;span class="c1"># 经典语法&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="我想撤销上一次-commit-并且重写历史">我想撤销上一次 commit 并且重写历史&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git reset --hard HEAD~1
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="我想回到-n-次-commit-之前">我想回到 n 次 commit 之前&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git reset --hard HEAD~n &lt;span class="c1"># 回到倒数第 n 次 commit&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git reset --hard &amp;lt;commit-sha&amp;gt; &lt;span class="c1"># 或者回到特定的某次提交&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>&lt;code>soft&lt;/code>，&lt;code>mixed&lt;/code> 和 &lt;code>hard&lt;/code> 三种 reset 的不同：&lt;/p>
+&lt;ul>
+&lt;li>&lt;code>--soft&lt;/code>：撤销 commit 但是工作目录中会保留更改&lt;/li>
+&lt;li>&lt;code>--mixed&lt;/code> (默认)：撤销 commit，撤销当次 commit 的 stage，但是工作目录中会保留更改&lt;/li>
+&lt;li>&lt;code>--hard&lt;/code>：撤销 commit，撤销当次 commit 的 stage，并且删除更改&lt;/li>
+&lt;/ul>
+&lt;h4 id="我已经重写了历史记录现在想把这些改变-push-到远程仓库">我已经重写了历史记录，现在想把这些改变 push 到远程仓库&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git push -f
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>只要你的本地仓库和远程仓库有差异，这一步都是必要的。&lt;/p>
+&lt;p>&lt;em>WARNING&lt;/em>：强制 push 需要格外小心。一般来说，
+在共享的分支你应该避免任何的强制 push。在开启一个 pull 请求之前，
+你应将强制 push 限制在你自己的分支内，以免在不经意间弄乱你队友的 git 历史。&lt;/p>
+&lt;h4 id="我想为上一次-commit-多加一些改变">我想为上一次 commit 多加一些改变&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git commit --amend
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="我想重写本地的一堆-commit">我想重写本地的一堆 commit&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git rebase -i &amp;lt;commit hash&amp;gt; &lt;span class="c1"># commit hash 是所有你想改变的 commit 之前的一个 commit 的 hash &lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这条命令将开启一个互动提示，你可以通过它来选择保持、压缩、删除
+哪一个 commit。你也可以在这里改变 commit message。
+比如在清理错字或者规范化 commit 时，它非常有用。&lt;/p>
+&lt;p>当深入学习 Git 之后，我发现 rebasing 是非常令人困惑的主题之一。
+查看这个 &lt;a class="link" href="https://dev.to/g_abud/advanced-git-reference-1o9j#rebase-vs-merge" target="_blank" rel="noopener"
+>rebasing&lt;/a>
+文档了解更多。&lt;/p>
+&lt;h4 id="这个-rebase-垮了报废掉它吧">这个 rebase 垮了，报废掉它吧&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git rebase --abort
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>你可以在 rebase 过程中使用这条命令。&lt;/p>
+&lt;p>我发现，rebase 带来的麻烦总是超过他的价值，特别是在 rebase 两个
+有着大量相同更改的分支的时候。在完成整个 rebase 之前，
+你都可以让这个 rebase 流产。&lt;/p>
+&lt;h4 id="我想从另一个分支把一个-commit-带到当前分支">我想从另一个分支把一个 commit 带到当前分支&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># 将 commit-sha 所指的 commit 带入当前分支&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git cherry-pick &amp;lt;commit-sha&amp;gt;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="我想从另一个分支把一个指定的文件带到当前分支">我想从另一个分支把一个指定的文件带到当前分支&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git checkout &amp;lt;branch-name&amp;gt; &amp;lt;filename&amp;gt;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>(译者注：这个仿佛不能用 git restore，git restore 更倾向于重置和恢复)&lt;/p>
+&lt;h4 id="我想在版本控制中停止追踪某个文件">我想在版本控制中停止追踪某个文件&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git rm --cached &amp;lt;file-name&amp;gt;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="我需要更换分支但当前状态已有更改">我需要更换分支，但当前状态已有更改&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git stash &lt;span class="c1"># 将已有更改保存在 stash 栈的栈顶&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git stash save &lt;span class="s2">&amp;#34;对于更改的信息描述&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git stash -u &lt;span class="c1"># 同时也 stash 未被追踪 (untracked) 的文件&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="我想看看我的-stash-里有啥">我想看看我的 stash 里有啥&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git stash list
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="我想把-stash-里的东西取出来">我想把 stash 里的东西取出来&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git stash pop &lt;span class="c1"># 弹出最近添加到 stash 栈的项目&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git stash apply stash@&lt;span class="o">{&lt;/span>stash_index&lt;span class="o">}&lt;/span> &lt;span class="c1"># 申请取出指定项目可以用 git stash list 查看&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h4 id="我想撤销一次-commit-而不重写历史">我想撤销一次 commit 而不重写历史&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git revert HEAD &lt;span class="c1"># 撤销最近一次 commit&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ git revert &amp;lt;commit-sha&amp;gt; &lt;span class="c1"># 撤销指定 commit&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这条命令将重新运行提交新的 commit 时的逆过程，
+从而撤销你的更改而不会撤销历史记录。
+在共享的分支中撤销 commit 时，重写历史记录会非常的复杂，
+所以使用 git revert 是一种很安全的解决方式。&lt;/p>
+&lt;h3 id="清理-cleanup">清理 (Cleanup)&lt;/h3>
+&lt;h4 id="我去咋有这么多分支">我去，咋有这么多分支&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git branch --no-color --merged &lt;span class="p">|&lt;/span> &lt;span class="nb">command&lt;/span> grep -vE &lt;span class="s2">&amp;#34;^(\+|\*|\s*(master|develop|dev)\s*&lt;/span>$&lt;span class="s2">)&amp;#34;&lt;/span> &lt;span class="p">|&lt;/span> &lt;span class="nb">command&lt;/span> xargs -n &lt;span class="m">1&lt;/span> git branch -d
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这条命令将删除本地除了 master、develop、dev 之外的所有已合并的分支，
+如果你的主分支和 dev 分支有着另外的名字，
+你可以改变相应的 &lt;code>grep&lt;/code> 的正则。&lt;/p>
+&lt;p>这条命令很长，不太好记，但你可以为它设置一个别名，就像这样：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">alias&lt;/span> &lt;span class="nv">gbda&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="s1">&amp;#39;git branch --no-color --merged | command grep -vE &amp;#34;^(\+|\*|\s*(master|develop|dev)\s*$)&amp;#34; | command xargs -n 1 git branch -d&amp;#39;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果你在使用 &lt;code>Oh My Zsh&lt;/code> ，这一步它已经为你完成。
+查看 &lt;a class="link" href="https://dev.to/g_abud/advanced-git-reference-1o9j#aliases" target="_blank" rel="noopener"
+>aliases&lt;/a>
+了解更多。&lt;/p>
+&lt;h4 id="来清理旧分支和无效-commit-吧">来清理旧分支和无效 commit 吧~&lt;/h4>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git fetch --all --prune
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果你已经为远程仓库设置了在 merge 时删除分支，这条命令也非常有用。&lt;/p>
+&lt;p>(译者注：git fetch &amp;ndash;prune 将会在 fetch 前
+移除在本地的所有远程仓库中不再存在的远程跟踪引用，详见&lt;a class="link" href="https://git-scm.com/docs/git-fetch#Documentation/git-fetch.txt---prune" target="_blank" rel="noopener"
+>官方文档&lt;/a>)&lt;/p>
+&lt;h3 id="aliases">Aliases&lt;/h3>
+&lt;p>Git 命令有时会很长，不太容易记住。我们不想每次都把它们敲一遍或者
+花费几天将它们背下来，因此我强烈建议你为它们设置 Git 别名。&lt;/p>
+&lt;p>更方便的方式是，安装一个像 &lt;code>Z Shell&lt;/code> (Zsh) 中的 &lt;code>Oh My Zsh&lt;/code> 一样的工具。
+这样一来，你将拥有&lt;a class="link" href="https://github.com/ohmyzsh/ohmyzsh/wiki/Cheatsheet#git" target="_blank" rel="noopener"
+>一大堆最常用的 Git 命令的别名&lt;/a>。
+你可以使用 &lt;code>别名 + tab&lt;/code> 来补全他们。我懒得按照我的喜好设置 shell，
+所以我喜欢用一些类似 Oh My Zsh 的开源工具，它们可以帮我配置好~
+更不用说它们还有这漂亮的外观了~&lt;/p>
+&lt;p>我每天用的最多的一些命令：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ gst - git status
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gc - git commit
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gaa - git add --all
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gco - git checkout
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gp - git push
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gl - git pull
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gcb - git checkout -b
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gm - git merge
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ grb - git rebase
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gpsup - git push --set-upstream origin &lt;span class="k">$(&lt;/span>current_branch&lt;span class="k">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gbda - git branch --no-color --merged &lt;span class="p">|&lt;/span> &lt;span class="nb">command&lt;/span> grep -vE &lt;span class="s2">&amp;#34;^(\+|\*|\s*(master|develop|dev)\s*&lt;/span>$&lt;span class="s2">)&amp;#34;&lt;/span> &lt;span class="p">|&lt;/span> &lt;span class="nb">command&lt;/span> xargs -n &lt;span class="m">1&lt;/span> git branch -d
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">$ gfa - git fetch --all --prune
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>如果你忘记了这些或者其他你自己设置的别名，可以运行：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">alias&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>或者给出关键词进行搜索：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ &lt;span class="nb">alias&lt;/span> grep &amp;lt;alias-name&amp;gt;
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="其他-git-技巧">其他 Git 技巧&lt;/h2>
+&lt;h3 id="忽视文件-ignoring-files">忽视文件 (Ignoring Files)&lt;/h3>
+&lt;p>很多文件可能不需要存在于版本控制中，你可以设置&lt;a class="link" href="http://egorsmirnov.me/2015/05/04/global-gitignore-file.html" target="_blank" rel="noopener"
+>全局 gitignore 文件&lt;/a>
+来忽视掉它们。需要忽视的文件可能是一些 &lt;code>node_modules&lt;/code> 文件夹，
+&lt;code>.vscode&lt;/code> 或其他 IDE 的文件，以及一些 Python 的虚拟环境。&lt;/p>
+&lt;p>对于一些敏感信息，你可以使用环境变量文件存放，然后将它们添加到
+项目根目录下的 &lt;code>.gitignore&lt;/code> 文件中。&lt;/p>
+&lt;h3 id="特殊文件-special-files">特殊文件 (Special Files)&lt;/h3>
+&lt;p>你可能需要将一些文件标记为二进制文件，以便于 Git 可以将其忽视，
+并且不用为它们产生冗长的差异性检测。Git 有一个 &lt;code>.gitattributes&lt;/code> 文件
+来实现这一操作。比如在一个 JavaScript 项目中，
+你会在 &lt;code>.gitattributes&lt;/code> 中添加一个 &lt;code>yarn-lock.json&lt;/code> 或者
+&lt;code>package-lock.json&lt;/code>，这样一来，在你每次更新时，
+Git 不用每次都尝试记录它们的差异变化。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># .gitattributes&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">package-lock.json binary
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;h2 id="git-工作流">Git 工作流&lt;/h2>
+&lt;h3 id="rebase-vs-merge">Rebase vs. Merge&lt;/h3>
+&lt;p>你的团队可能会从 rebase 和 merge 两种工作流中二选其一，
+二者都有利弊，我曾见过这两种方式都可以产生很高的效率。
+对于大多数情况，除非你 &lt;em>真的&lt;/em> 了解你正在做什么，
+否则选择 merge 工作流就完事了。&lt;/p>
+&lt;p>当你主要使用 merge 来为产品更新迭代时，
+仍然也可以高效的使用 rebase。
+最常见的场景是，你正在一个 feature 上工作，
+同时另外一个开发者 pull 了一个别的 feature 到 master。
+你确实可以使用 &lt;code>git merge&lt;/code> 将那些改变一起带上，
+但是这样，你会对队友做的简单更改有一个额外的 commit。
+你真正想做的是将你的提交 &lt;em>重新提交&lt;/em> 到最新的 master 的最上面。&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git rebase master
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>这条命令将给你一个更干净的 commit 历史。&lt;/p>
+&lt;p>深度解释它们之间的不同点可能需要一整篇论文来阐述，
+因此，我建议你可以查阅 &lt;a class="link" href="https://www.atlassian.com/git/tutorials/merging-vs-rebasing" target="_blank" rel="noopener"
+>the Atlassian docs&lt;/a> 中有关这些差异的文章。&lt;/p>
+&lt;h3 id="远程仓库设置-remote-repository-setting">远程仓库设置 (Remote Repository Setting)&lt;/h3>
+&lt;p>我对于 GitHub 和 GitLab 最为熟悉，但是其他远程仓库管理器也
+应该支持这些设置。&lt;/p>
+&lt;h4 id="1-在-merge-时删除分支">1. 在 merge 时删除分支&lt;/h4>
+&lt;p>一旦有分支被 merge，你就不应该在关心这个分支，
+因为它的历史将被映射到你的 master/dev 分支。
+这一举措会显著的减少你所管理的分支数量。
+也可以通过使用 &lt;code>git fetch -all --prune&lt;/code> 更为高效的保持本地仓库的干净整洁。&lt;/p>
+&lt;h4 id="2-防止直接-push-到-master">2. 防止直接 push 到 master&lt;/h4>
+&lt;p>如果没有这个设置，很容易在 &lt;code>git push&lt;/code> 时，忘记自己正在 master，
+这会潜在的破坏你的产品，一点也不好。&lt;/p>
+&lt;h4 id="3-merge-前至少需要一次确认">3. merge 前至少需要一次确认&lt;/h4>
+&lt;p>取决于团队的大小，你可能需要在 merge 前需要多次的确认，
+即使只是一个二人团队，最少也要确认一次。
+你不用花费几个小时每行都看，但一般来说，
+你的代码应该至少有两个人看过。
+&lt;a class="link" href="https://dev.to/g_abud/effective-learning-and-feedback-loops-1110" target="_blank" rel="noopener"
+>反馈&lt;/a> 是学习和个人提升的关键。&lt;/p>
+&lt;h4 id="4-merge-前需要通过-ci-测试">4. merge 前需要通过 CI 测试&lt;/h4>
+&lt;p>(译者注：CI 即 Continuous Integration，&lt;a class="link" href="https://gitbook.cn/gitchat/column/5aa795539c3cf94d49162f03/topic/5aaa1abe0bb9e857450e7a9e" target="_blank" rel="noopener"
+>持续集成&lt;/a>)&lt;/p>
+&lt;p>已损坏的改变不应该被 merge 到产品中。
+测试人员无法 100% 的捕捉损坏的更改，因此需要自动执行这些检测。&lt;/p>
+&lt;h3 id="pull-请求-pull-requests">Pull 请求 (Pull Requests)&lt;/h3>
+&lt;p>保持 Pull 请求小而简洁，理想情况下不超过几百行。
+小而频繁的 Pull 请求会使得审阅过程更快，从而产生更多的无 bug 代码，
+也会让你的队友更轻松，从而提升团队的效率，也更容易分享学习经验。
+团队内部达成一个共同的承诺，承诺每天都花一些时间来审阅公开 Pull 请求。&lt;/p>
+&lt;p>我们都爱这样的审阅：
+![reviewing]https://res.cloudinary.com/practicaldev/image/fetch/s&amp;ndash;7vLB7w1a&amp;ndash;/c_limit%2Cf_auto%2Cfl_progressive%2Cq_auto%2Cw_880/https://dev-to-uploads.s3.amazonaws.com/i/gdcwrvn006gryk0xiox0.png)&lt;/p>
+&lt;p>如果你正在实现的特性在一段时间内都会处于损坏状态，
+请使用&lt;a class="link" href="https://www.martinfowler.com/articles/feature-toggles.html" target="_blank" rel="noopener"
+>特性标签&lt;/a>来在产品中禁用它。
+这将会防止你的特性分支和 dev/master 分支产生太大差异，
+同时也允许你做更频繁，更小的 Pull 请求。不 merge 代码的时间越长，
+以后 merge 的难度就越大。&lt;/p>
+&lt;p>最后，在你的 Pull 请求中放一个细节描述，如果必要的话，
+可以放图片或者 GIF。如果你使用像 Jira 这样的工具管理票据
+(tickets，译者注：没使过不太懂啥意思)，
+描述中也可以包括 Pull 请求地址的票据的编号。
+Pull 请求的描述和可视化做的越详细，可能你的队友就越想审阅你的代码，
+而不是拖延着下次一定。&lt;/p>
+&lt;h3 id="分支命名-branch-naming">分支命名 (Branch Naming)&lt;/h3>
+&lt;p>你的团队可能会提出分支命名的规范，以便于导航。
+我喜欢每个分支以创建人的名字首字母开头，接着一个左斜杠，
+然后是以短横线连接的分支描述。&lt;/p>
+&lt;p>这可能看起来微不足道，但是配合 tab 补全以及类似 grep 这样的工具一起使用，
+这确实可以帮你找到并理解可能有的所有分支。&lt;/p>
+&lt;p>例如，我创建了一个新分支：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git checkout -b gabud/implement-important-feature
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>一周后，当我忘记我之前给它起了什么名字，
+我可以键入 &lt;code>git checkout gabud&lt;/code>，然后按 tab 键，
+我的 Z shell 就会向我展示所有我本地的分支以供选择，
+而不用看我队友们的分支。&lt;/p>
+&lt;h3 id="提交信息-commit-messages">提交信息 (Commit Messages)&lt;/h3>
+&lt;p>语言很重要，一般来说，我发现最好不要以破碎状态提交东西，
+每一次提交都应该有一个简洁的信息，说明所做的更改。
+按照官方 &lt;a class="link" href="https://git-scm.com/book/en/v2/Distributed-Git-Contributing-to-a-Project" target="_blank" rel="noopener"
+>Git 建议&lt;/a>，我发现最好使用当前的命令式意义来提交信息。
+可以将每个提交信息视为对 计算机/git 的命令，
+以至于你可以将提交信息加到这句话后面：&lt;/p>
+&lt;p>&lt;strong>如果这个 commit 被应用，将会&amp;hellip;&lt;/strong>&lt;/p>
+&lt;p>在当前命令式意义上，良好的提交示例为：&lt;/p>
+&lt;div class="highlight">&lt;pre tabindex="0" class="chroma">&lt;code class="language-shell" data-lang="shell">&lt;span class="line">&lt;span class="cl">$ git commit -m &lt;span class="s2">&amp;#34;Add name field to checkout form&amp;#34;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/div>&lt;p>现在可以这么读：“如果这个 commit 被应用，将会在表单中添加姓名域。”&lt;/p>
+&lt;h3 id="最后的想法">最后的想法&lt;/h3>
+&lt;p>这绝不是已经了解了 Git 的全部，建议查阅 &lt;a class="link" href="https://git-scm.com/doc" target="_blank" rel="noopener"
+>官方文档&lt;/a>
+和 &lt;code>git help&lt;/code> 了解更多。
+不要害怕向你的队友问一些 Git 的问题，
+你会惊讶的发现大多数队友也有许多相同的问题。&lt;/p>
+&lt;p>那么你呢？哪个 Git 命令或者概念在你的工作流中最有用呢~&lt;/p></description></item></channel></rss>

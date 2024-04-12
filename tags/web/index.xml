@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Web on Aiar's Site</title><link>https://aiar.site/tags/web/</link><description>Recent content in Web on Aiar's Site</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Thu, 03 Sep 2020 14:50:29 +0800</lastBuildDate><atom:link href="https://aiar.site/tags/web/index.xml" rel="self" type="application/rss+xml"/><item><title>[译] 模式：API网关和BFF</title><link>https://aiar.site/post/2b9443a5b0dc404082f04cd7a6802814/</link><pubDate>Thu, 03 Sep 2020 14:50:29 +0800</pubDate><guid>https://aiar.site/post/2b9443a5b0dc404082f04cd7a6802814/</guid><description>&lt;img src="https://s11.ax1x.com/2024/01/08/pFSgNA1.png" alt="Featured image of post [译] 模式：API网关和BFF" />&lt;blockquote>
+&lt;ul>
+&lt;li>原文地址：&lt;a class="link" href="https://microservices.io/patterns/apigateway.html" target="_blank" rel="noopener"
+>Pattern: API Gateway / Backends for Frontends&lt;/a>&lt;/li>
+&lt;li>原文作者：&lt;a class="link" href="https://microservices.io/about.html" target="_blank" rel="noopener"
+>Chris Richardson&lt;/a>&lt;/li>
+&lt;li>译文出自：&lt;a class="link" href="https://microservices.io/" target="_blank" rel="noopener"
+>Microservice Architecture&lt;/a>&lt;/li>
+&lt;li>译者：&lt;a class="link" href="https://github.com/Arrackisarookie" target="_blank" rel="noopener"
+>Arrackisarookie&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;/blockquote>
+&lt;h2 id="情景">情景&lt;/h2>
+&lt;p>试想，你的团队正在搭建一个在线商城，它使用了&lt;a class="link" href="https://microservices.io/patterns/microservices.html" target="_blank" rel="noopener"
+>微服务架构模式&lt;/a>，现在需要你实现产品的信息细节页面。针对这个产品信息页面，你需要开发多个版本的用户接口：&lt;/p>
+&lt;ul>
+&lt;li>基于 &lt;code>HTML5/JavaScript&lt;/code> 适用于桌面和手机浏览器的用户接口 - HTML 由服务器端的 Web 应用程序生成&lt;/li>
+&lt;li>本地的 &lt;code>Android&lt;/code> 和 &lt;code>iPhone&lt;/code> 客户端 - 这些客户端通过 &lt;code>REST APIs&lt;/code> 与服务器进行交互&lt;/li>
+&lt;/ul>
+&lt;p>另外，这个在线商城必须可以通过一个 &lt;code>REST API&lt;/code> 暴露产品信息，以供第三方应用使用获取。&lt;/p>
+&lt;p>产品信息页会展示大量有关该产品的信息。比如 &lt;em>Amzon.com&lt;/em> 上 &lt;a class="link" href="http://www.amazon.com/POJOs-Action-Developing-Applications-Lightweight/dp/1932394583" target="_blank" rel="noopener"
+>POJOs in Action&lt;/a> 这本书的信息页展示了：&lt;/p>
+&lt;ul>
+&lt;li>这本书的基本信息，像标题，作者，价格等等&lt;/li>
+&lt;li>你对于这本书的支付历史&lt;/li>
+&lt;li>是否可以购买(库存)&lt;/li>
+&lt;li>购买选项&lt;/li>
+&lt;li>和这本书经常一起购买的书&lt;/li>
+&lt;li>买了这本书的其他买家还买了哪些书&lt;/li>
+&lt;li>买家评论&lt;/li>
+&lt;li>卖家排行&lt;/li>
+&lt;li>&amp;hellip;&lt;/li>
+&lt;/ul>
+&lt;p>由于这个在线商城使用了微服务架构模式，产品的具体信息被分布在了多个微服务上。比如：&lt;/p>
+&lt;ul>
+&lt;li>产品信息服务 - 该产品的基本信息，类似标题，作者&lt;/li>
+&lt;li>价格服务 - 产品的定价&lt;/li>
+&lt;li>订单服务 - 产品的支付历史&lt;/li>
+&lt;li>库存服务 - 产品是否可购买&lt;/li>
+&lt;li>评论服务 - 买家评论&lt;/li>
+&lt;/ul>
+&lt;p>这样一来，展示产品信息的代码需要从以上所有服务中获取信息。&lt;/p>
+&lt;h2 id="问题">问题&lt;/h2>
+&lt;p>一个基于微服务的应用程序客户端如何访问一个个独立的服务呢？&lt;/p>
+&lt;h2 id="痛点">痛点&lt;/h2>
+&lt;ul>
+&lt;li>由微服务提供的 APIs，它的粒度经常和客户端所需的粒度有所不同。微服务一般会提供细粒度的 APIs，这也就意味着客户端需要和很多微服务产生交互。就像上面情境中描述的，客户端如果需要展示的产品信息细节，就需要从大量的服务中获取数据&lt;/li>
+&lt;li>不同的客户端需要不同的数据。比如，桌面浏览器版本的产品信息页要比手机版本的更加细致丰富。&lt;/li>
+&lt;li>对于不同类型的客户端，网络性能也是不同的。比如，手机网络一般要比非手机网络更慢而且延时更高。当然，广域网也会比局域网慢很多。这也就意味着使用手机网络的移动客户端和使用局域网的服务器端 Web 应用程序将有着差异非常大的性能特点。服务器端的 Web 应用程序可以同时处理多个传到后端的请求，并且不会影响到用户的体验，而手机客户端只能做到一点点&lt;/li>
+&lt;li>服务实例的数量和他们地址(主机地址+端口)的动态改变&lt;/li>
+&lt;li>拆分成的多个服务可能会随着时间改变拆分方式，这些对于客户端应该是隐藏的&lt;/li>
+&lt;li>众多的服务可能会使用各种各样的协议，其中有些可能对网络不友好&lt;/li>
+&lt;/ul>
+&lt;h2 id="解决">解决&lt;/h2>
+&lt;p>实现一个 API 网关，让它作为所有的客户端访问服务器的唯一入口。API 网关处理请求一般有两种方式，一些请求会被简单的代理到或路由到合适的服务，而对于另外一些服务，网关可能会同时分发给多个服务(&lt;a class="link" href="https://en.wikipedia.org/wiki/Fan-out_%28software%29" target="_blank" rel="noopener"
+>fan out to multiple services&lt;/a>)。&lt;/p>
+&lt;p>&lt;img src="https://microservices.io/i/apigateway.jpg"
+loading="lazy"
+alt="Use an API gateway"
+>&lt;/p>
+&lt;p>不同于提供一套适用于所有类型的通用 API，我们的 API 网关可以为每一种客户端暴露不同的 API 接口。比如，&lt;a class="link" href="" >Netflix API&lt;/a> 运行着一套客户端识别适配代码，它可以为每一种客户端提供其所需的最合适的 API 接口。&lt;/p>
+&lt;p>API 网关可能也会实现安全措施，例如验证客户端是否被授权可以执行该请求。&lt;/p>
+&lt;h2 id="变种服务于前端的后端backends-for-frontends---bff">变种：服务于前端的后端(Backends for frontends - BFF)&lt;/h2>
+&lt;p>上面所说的这种模式有个变种形式，也就是 &lt;code>BFF&lt;/code> 模式。它为每个类型的客户端定义了一套专门的 API 接口。&lt;/p>
+&lt;p>&lt;img src="https://microservices.io/i/bffe.png"
+loading="lazy"
+alt="Variation: Backends for frontends"
+>&lt;/p>
+&lt;p>在这个例子中，有三种客户端：Web 应用，移动应用和外部第三方应用。同样，也有三种不同的 API 网关，它们和之前提到的三种客户端一一对应。&lt;/p>
+&lt;h2 id="结论">结论&lt;/h2>
+&lt;p>使用 API 网关有以下优势：&lt;/p>
+&lt;ul>
+&lt;li>客户端将与应用后台如何划分微服务完全隔离&lt;/li>
+&lt;li>客户端将与决定服务实例位置的问题完全隔离&lt;/li>
+&lt;li>为每一种客户端提供最佳的 API&lt;/li>
+&lt;li>削减了大量的请求和往返次数。比如，API 网关允许客户端在一次往返中从多个服务中获取数据。更少的请求次数也意味着更少的资源开销，和更优质的用户体验。API 网关对于移动应用来说十分必要&lt;/li>
+&lt;li>简化了客户端。改变了客户端的运行逻辑，客户端不再需要调用多个服务，而是把这一切工作移给了 API 网关&lt;/li>
+&lt;li>它可以将标准的公共网络友好的 API 协议转换成内部使用的任意协议&lt;/li>
+&lt;/ul>
+&lt;p>API 网关也有它的劣势：&lt;/p>
+&lt;ul>
+&lt;li>复杂性提升了 - API 网关事实上是一个独立的可插拔部件，它也必须需要开发，发布和管理&lt;/li>
+&lt;li>增加了响应时间 - 由于经过 API 网关时增加了额外的网络跳转，所以响应时间会有所增加。但是对于大部分应用来说，这一点增加的开销是微不足道的。&lt;/li>
+&lt;/ul>
+&lt;p>议题&lt;/p>
+&lt;ul>
+&lt;li>如何实现 API 网关呢？如果该网关必须按照比例缩放以应对高负载，那么最好采用事件驱动或响应式的方法。在 &lt;code>JVM&lt;/code>，或者像 &lt;code>Netty&lt;/code>，&lt;code>Spring Reactor&lt;/code> 这样的基于 &lt;code>NIO&lt;/code> 的库效果很好。&lt;code>NodeJS&lt;/code> 也是一种选择。&lt;/li>
+&lt;/ul>
+&lt;h2 id="相关的模式">相关的模式&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://microservices.io/patterns/microservices.html" target="_blank" rel="noopener"
+>微服务架构模式(Microservice architecture pattern)&lt;/a> 为 API 网关模式创造了需求&lt;/li>
+&lt;li>API 网关必须使用 &lt;a class="link" href="https://microservices.io/patterns/client-side-discovery.html" target="_blank" rel="noopener"
+>客户端探索模式(Client-side Discovery pattern)&lt;/a> 或者 &lt;a class="link" href="https://microservices.io/patterns/server-side-discovery.html" target="_blank" rel="noopener"
+>服务器端探索模式(Server-side Discovery pattern)&lt;/a> 来将请求路由到可用的服务实例&lt;/li>
+&lt;li>API 网关可以验证用户身份，并且会将一个包含用户信息的 &lt;a class="link" href="https://microservices.io/patterns/security/access-token.html" target="_blank" rel="noopener"
+>访问令牌(Access Token)&lt;/a> 传送给服务&lt;/li>
+&lt;li>API 网关需要使用 &lt;a class="link" href="https://microservices.io/patterns/reliability/circuit-breaker.html" target="_blank" rel="noopener"
+>断路器模式(Circuit Breaker)&lt;/a> 来调用服务&lt;/li>
+&lt;li>API 网关经常会实现 &lt;a class="link" href="https://microservices.io/patterns/data/api-composition.html" target="_blank" rel="noopener"
+>API 组合模式(API Composition pattern)&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h2 id="已知在使用的">已知在使用的&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="http://techblog.netflix.com/2012/07/embracing-differences-inside-netflix.html" target="_blank" rel="noopener"
+>Netflix API 网关&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h2 id="应用范例">应用范例&lt;/h2>
+&lt;p>请参阅微服务模式中 &lt;a class="link" href="https://github.com/microservice-patterns/ftgo-application" target="_blank" rel="noopener"
+>应用程序范例&lt;/a> 的 API 网关部分。它使用 Spring Cloud Gateway 实现。&lt;/p></description></item></channel></rss>
