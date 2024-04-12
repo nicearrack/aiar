@@ -39,12 +39,33 @@ ps: 说实话，其实装的时候还是有点慌的
 **系统依赖**
 1. zlib-devel  # 影响 zlib 包的安装
 2. libffi-devel  # 忘了影响啥，装就对了
-3. openssl-devel  # 影响 \_ssl 包的安装，如果装了这个还是无法正确安装，则可以看 [这篇文章(还没写)]()
+3. openssl-devel  # 影响 \_ssl 包的安装，如果装了这个还是无法正确安装，则可以看 [后文附录部分](#附录)
 4. bzip2-devel  # 影响 \_bz2 包的安装
 
+
+```
+The necessary bits to build these optional modules were not found:
+_bz2                  _curses               _curses_panel
+_dbm                  _gdbm                 _hashlib
+_lzma                 _sqlite3              _ssl
+_tkinter              _uuid                 readline
+zlib
+
+_ctypes - libffi-devel
+_bz2 - bzip2-devel
+_uuid - uuid-devel/libuuid-devel 前者好像和gdbm-devel有冲突
+_lzma - xz-devel
+_dbm - gdbm-devel
+zlib - zlib-devel
+readline - readline-devel
+
+_hashlib - openssl11
+_ssl - openssl11
+```
+
 ## 下载
-Python官方下载地址：https://www.python.org/downloads/
-Python官方 ftp 下载地址：https://www.python.org/ftp/python/
+Python官方下载地址：[https://www.python.org/downloads/](https://www.python.org/downloads/)  
+Python官方 ftp 下载地址：[https://www.python.org/ftp/python/](https://www.python.org/ftp/python/)
 
 可以按需下载相应的 Python 版本，由于是要在 Linux 中编译安装，所以我们需要下载 `Gzipped source tarball` 或者 `XZ compressed source tarball`，前者是 `.tgz` 格式，后者是 `.tar.xz`，正确解压后的结果无本质区别。
 
@@ -155,3 +176,38 @@ export PATH=/new/path/to/python/bin:$PATH
 $ source ~/.bashrc
 ```
 以后该用户就可以直接使用 `python3.9` 命令了。
+
+## 附录
+当时的情况是，通过 `yum` 安装 `openssl-devel` 之后，在安装 `Python3.9` 时 `ssl` 模组仍无法正确安装(猜测是openssl版本过低，时间久远有点忘记细节了)，故使用编译安装的方式，重新装了一个 `openssl-1.1.1`，再在编译 Python 时使用 `--with-openssl` 参数，最后 ssl 成功安装。
+
+下为当时的操作记录.
+
+```
+615  tar -zxvf openssl-1.1.1t.tar.gz 
+616  ll
+617  cd openssl-1.1.1t/
+618  ll
+619  ./Configure -h
+620  ./config -h
+625  cd /path/xxxxx
+626  mkdir openssl
+627  pwd
+628  cd -
+629  ./config --prefix=/path/to/openssl --openssldir=/path/to/openssl
+630  make
+631  make install
+632  cd -
+633  ll openssl/
+634  cd -
+635  cd ..
+636  cd Python-3.9.13/
+646  ./configure --prefix=/path/to/py39 --with-openssl=/path/to/openssl
+647  make
+648  make install
+649  /path/to/python3.9 
+650  whereis python
+664  echo $PATH
+670  ln -s /path/to/py39/bin/python3.9 /path/in/$PATH/python3.9
+671  ln -s /path/to/py39/bin/pip3.9 /path/in/$PATH/pip3.9
+673  python3.9
+```
